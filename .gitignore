@@ -1,0 +1,42 @@
+# Node
+node_modules/
+.pnp.*
+
+# Next.js
+.next/
+out/
+.next/cache/
+
+# Turborepo
+.turbo/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files
+.env
+.env.*
+apps/*/.env
+apps/*/.env.*
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Laravel
+apps/api/vendor/
+apps/api/storage/
+apps/api/bootstrap/cache/
+# Laravel caches
+apps/api/*.cache
+
+# Build outputs
+apps/*/dist/
+public/build/
+
+# OS
+Thumbs.db
