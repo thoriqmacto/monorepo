@@ -12,11 +12,16 @@
     "lint": {
       "outputs": []
     },
+    "typecheck": {
+      "outputs": []
+    },
     "dev": {
-      "cache": false
+      "cache": false,
+      "persistent": true
     },
     "start": {
-      "cache": false
+      "cache": false,
+      "persistent": true
     }
   }
 }

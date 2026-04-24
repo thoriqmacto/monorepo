@@ -1,13 +1,13 @@
 "use client";
 
-import { Toaster } from "react-hot-toast";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider } from "@/components/auth-provider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
         <AuthProvider>
             {children}
-            <Toaster position="top-right" />
+            <Toaster richColors position="top-right" />
         </AuthProvider>
     );
 }

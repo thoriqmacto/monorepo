@@ -19,8 +19,11 @@ pnpm-debug.log*
 # Env files
 .env
 .env.*
+!.env.example
 apps/*/.env
 apps/*/.env.*
+!apps/*/.env.example
+!apps/*/.env.local.example
 
 # Editor
 .vscode/
@@ -33,6 +36,10 @@ apps/api/storage/
 apps/api/bootstrap/cache/
 # Laravel caches
 apps/api/*.cache
+
+# SQLite local DB
+apps/api/database/*.sqlite
+apps/api/database/*.sqlite-journal
 
 # Build outputs
 apps/*/dist/
