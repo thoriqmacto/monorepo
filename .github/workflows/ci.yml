@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   web:
     name: Web (Next.js)
@@ -58,6 +62,10 @@ jobs:
           composer show laravel/sanctum
       - name: Run tests
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
         run: |
           set +e
           php artisan test --without-tty 2>&1 | tee /tmp/test-output.txt
@@ -65,7 +73,7 @@ jobs:
           set -e
           if [ "$RC" -ne 0 ]; then
             {
-              echo "## API test failure (exit $RC)"
+              echo "## API CI test failure (exit $RC)"
               echo
               echo '### phpunit / artisan test output'
               echo
@@ -75,12 +83,14 @@ jobs:
               if [ -f storage/logs/laravel.log ]; then
                 echo
                 echo '### storage/logs/laravel.log'
-                echo
                 echo '```'
-                cat storage/logs/laravel.log
+                tail -c 20000 storage/logs/laravel.log
                 echo '```'
               fi
-            } >> "$GITHUB_STEP_SUMMARY"
+            } | tee -a "$GITHUB_STEP_SUMMARY" > /tmp/comment.md
+            if [ -n "$PR_NUMBER" ]; then
+              gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file /tmp/comment.md || true
+            fi
           fi
           exit $RC
 
