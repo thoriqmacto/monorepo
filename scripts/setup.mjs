@@ -201,7 +201,7 @@ async function installDeps({ skipDeps }) {
     }
 }
 
-async function bootstrapLaravel({ skipMigrate, mode }) {
+async function bootstrapLaravel({ skipMigrate, mode, seed }) {
     section("Bootstrap Laravel");
     const envFile = API_ENV;
     const envText = fs.readFileSync(envFile, "utf8");
@@ -220,6 +220,10 @@ async function bootstrapLaravel({ skipMigrate, mode }) {
     }
     if (!skipMigrate) {
         await run("php", ["artisan", "migrate", "--graceful", "--force"], { cwd: API_DIR });
+    }
+    if (seed) {
+        await run("php", ["artisan", "db:seed", "--force"], { cwd: API_DIR });
+        ok("Demo user seeded — login with demo@example.com / password");
     }
     await run("php", ["artisan", "storage:link"], { cwd: API_DIR, allowFail: true });
 }
@@ -255,8 +259,17 @@ async function commandSetup(args) {
     await writeEnvs({ mode, target, authMode });
     await installDeps({ skipDeps: args.flags["skip-deps"] });
 
+    let seed = false;
+    if (mode === "local") {
+        if (args.flags["seed"] === true || args.flags["seed"] === "true") seed = true;
+        else if (args.flags["no-seed"]) seed = false;
+        else if (!args.flags["non-interactive"]) {
+            seed = await askBool("Seed a demo user (demo@example.com / password)?", true);
+        }
+    }
+
     if (tools.php && fs.existsSync(path.join(API_DIR, "vendor", "autoload.php"))) {
-        await bootstrapLaravel({ skipMigrate: args.flags["skip-migrate"], mode });
+        await bootstrapLaravel({ skipMigrate: args.flags["skip-migrate"], mode, seed });
     } else if (!args.flags["skip-deps"]) {
         warn("Skipping Laravel bootstrap: vendor/ missing. Re-run setup after composer install.");
     }

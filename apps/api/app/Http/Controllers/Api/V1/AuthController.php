@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\ForgotPasswordRequest;
 use App\Http\Requests\Api\V1\LoginRequest;
 use App\Http\Requests\Api\V1\RegisterRequest;
 use App\Http\Requests\Api\V1\ResetPasswordRequest;
+use App\Http\Requests\Api\V1\UpdateMeRequest;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,6 +50,16 @@ class AuthController extends Controller
     {
         return response()->json([
             'user' => $request->user()->only(['id', 'name', 'email', 'created_at']),
+        ]);
+    }
+
+    public function updateMe(UpdateMeRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->fill($request->validated())->save();
+
+        return response()->json([
+            'user' => $user->only(['id', 'name', 'email', 'created_at']),
         ]);
     }
 

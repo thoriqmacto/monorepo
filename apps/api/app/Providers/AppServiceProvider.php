@@ -3,6 +3,9 @@
 namespace App\Providers;
 
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +22,25 @@ class AppServiceProvider extends ServiceProvider
      * Bootstrap any application services.
      */
     public function boot(): void
+    {
+        $this->configureRateLimiters();
+        $this->configurePasswordResetUrl();
+    }
+
+    private function configureRateLimiters(): void
+    {
+        // Public auth endpoints (login, register, forgot/reset password).
+        // Keyed by authenticated user (if any) else IP.
+        RateLimiter::for('auth', function (Request $request): Limit {
+            $key = $request->user()?->getAuthIdentifier() ?: $request->ip();
+
+            return Limit::perMinute(
+                (int) env('AUTH_THROTTLE_PER_MINUTE', 10)
+            )->by((string) $key);
+        });
+    }
+
+    private function configurePasswordResetUrl(): void
     {
         ResetPassword::createUrlUsing(function ($user, string $token): string {
             $frontend = rtrim((string) env('FRONTEND_URL', 'http://localhost:3000'), '/');

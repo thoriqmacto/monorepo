@@ -26,7 +26,14 @@ npm run setup     # interactive — choose local or remote mode
 npm run dev       # runs API + web concurrently via Turbo
 ```
 
-Visit http://localhost:3000 → sign up → you land on `/dashboard`.
+Visit http://localhost:3000 → sign in as the seeded demo user or register a new account → you land on `/dashboard`.
+
+**Demo credentials** (after running `db:seed`, which `npm run setup` offers to do for you):
+
+```
+email    demo@example.com
+password password
+```
 
 Re-run `npm run setup` any time to regenerate env files or change mode.
 
@@ -114,15 +121,18 @@ Shipped and enabled by default:
 
 Endpoints (all JSON):
 
-| Method | Path | Auth |
-|---|---|---|
-| GET  | `/api/ping` | public |
-| POST | `/api/v1/register` | public |
-| POST | `/api/v1/login` | public |
-| POST | `/api/v1/forgot-password` | public |
-| POST | `/api/v1/reset-password` | public |
-| GET  | `/api/v1/me` | bearer |
-| POST | `/api/v1/logout` | bearer |
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET  | `/api/ping` | public | Health. |
+| POST | `/api/v1/register` | public | Throttled. |
+| POST | `/api/v1/login` | public | Throttled. |
+| POST | `/api/v1/forgot-password` | public | Throttled. |
+| POST | `/api/v1/reset-password` | public | Throttled. |
+| GET  | `/api/v1/me` | bearer | Current user. |
+| PATCH | `/api/v1/me` | bearer | Update name/email. |
+| POST | `/api/v1/logout` | bearer | Revokes current token. |
+
+Public auth endpoints are rate-limited to `AUTH_THROTTLE_PER_MINUTE` requests per minute (default `10`), keyed by authenticated user or IP. Exceed the limit and the API responds `429`.
 
 ---
 
