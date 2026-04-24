@@ -32,9 +32,9 @@ apps/*/.env.*
 
 # Laravel
 apps/api/vendor/
-apps/api/storage/
-apps/api/bootstrap/cache/
-# Laravel caches
+# bootstrap/cache and storage/ directories are kept via nested .gitignore
+# files so `composer install` / `artisan` have somewhere to write runtime
+# artifacts. Their contents are ignored by those nested files.
 apps/api/*.cache
 
 # SQLite local DB
