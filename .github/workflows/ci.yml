@@ -54,9 +54,35 @@ jobs:
           php -v
           php -m
           php artisan --version
-          composer show laravel/framework laravel/sanctum | head -40
+          composer show laravel/framework
+          composer show laravel/sanctum
       - name: Run tests
-        run: php artisan test --without-tty || (echo "--- Laravel log (if any) ---"; cat storage/logs/laravel.log 2>/dev/null; exit 1)
+        shell: bash
+        run: |
+          set +e
+          php artisan test --without-tty 2>&1 | tee /tmp/test-output.txt
+          RC=${PIPESTATUS[0]}
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            {
+              echo "## API test failure (exit $RC)"
+              echo
+              echo '### phpunit / artisan test output'
+              echo
+              echo '```'
+              cat /tmp/test-output.txt
+              echo '```'
+              if [ -f storage/logs/laravel.log ]; then
+                echo
+                echo '### storage/logs/laravel.log'
+                echo
+                echo '```'
+                cat storage/logs/laravel.log
+                echo '```'
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $RC
 
   setup-script:
     name: Setup script (non-interactive smoke)
