@@ -88,8 +88,22 @@ node scripts/setup.mjs --non-interactive --mode=remote --api-url=https://api.exa
   - Set `NEXT_PUBLIC_AUTH_MODE=cookie`.
   - Set `CORS_SUPPORTS_CREDENTIALS=true` and include your web origin in `SANCTUM_STATEFUL_DOMAINS`.
   - The `cookie` adapter primes `/sanctum/csrf-cookie` before each mutating call.
+- **Frontend-only dev: `mock`.**
+  - Set `NEXT_PUBLIC_AUTH_MODE=mock`.
+  - No HTTP calls are made. Login/register instantly "succeed" as a fixture user.
+  - Useful when the Laravel API is intentionally offline and you only want to iterate on UI.
 
 Adapters live in `apps/web/lib/auth/adapters/`. Adding a new auth method = implement one more adapter.
+
+### Password reset
+
+Shipped and enabled by default:
+
+- `POST /api/v1/forgot-password` → emails a reset link to the user.
+- `POST /api/v1/reset-password` → consumes a valid token to set a new password.
+- The reset URL in the email points at `${FRONTEND_URL}/reset-password?token=…&email=…` (configured in `App\Providers\AppServiceProvider::boot`).
+- In local dev the default mail driver is `log`, so the link appears in `apps/api/storage/logs/laravel.log`.
+- Frontend pages: `/forgot-password`, `/reset-password`.
 
 ---
 
@@ -105,6 +119,8 @@ Endpoints (all JSON):
 | GET  | `/api/ping` | public |
 | POST | `/api/v1/register` | public |
 | POST | `/api/v1/login` | public |
+| POST | `/api/v1/forgot-password` | public |
+| POST | `/api/v1/reset-password` | public |
 | GET  | `/api/v1/me` | bearer |
 | POST | `/api/v1/logout` | bearer |
 

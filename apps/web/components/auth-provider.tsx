@@ -50,7 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const refresh = useCallback(async () => {
         const stored = readAuth();
-        if (authAdapter.mode === "bearer" && !stored) {
+        const usesLocalStorage = authAdapter.mode !== "cookie";
+        if (usesLocalStorage && !stored) {
             setUser(null);
             setStatus("anonymous");
             return;
@@ -88,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const login = useCallback(
         async (payload: LoginPayload) => {
             const auth = await authAdapter.login(payload);
-            if (authAdapter.mode === "bearer") writeAuth(auth);
+            if (authAdapter.mode !== "cookie") writeAuth(auth);
             setUser(auth.user);
             setStatus("authenticated");
             router.push("/dashboard");
@@ -99,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const register = useCallback(
         async (payload: RegisterPayload) => {
             const auth = await authAdapter.register(payload);
-            if (authAdapter.mode === "bearer") writeAuth(auth);
+            if (authAdapter.mode !== "cookie") writeAuth(auth);
             setUser(auth.user);
             setStatus("authenticated");
             router.push("/dashboard");

@@ -93,10 +93,18 @@ export default function LoginForm() {
                         </form>
                     </Form>
                 </CardContent>
-                <CardFooter className="justify-between text-sm">
-                    <span className="text-muted-foreground">Don&apos;t have an account?</span>
-                    <Link href="/register" className="font-medium hover:underline underline-offset-4">
-                        Create one
+                <CardFooter className="flex flex-col items-stretch gap-3 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-muted-foreground">Don&apos;t have an account?</span>
+                        <Link href="/register" className="font-medium hover:underline underline-offset-4">
+                            Create one
+                        </Link>
+                    </div>
+                    <Link
+                        href="/forgot-password"
+                        className="text-muted-foreground hover:text-foreground hover:underline underline-offset-4"
+                    >
+                        Forgot your password?
                     </Link>
                 </CardFooter>
             </Card>

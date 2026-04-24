@@ -149,15 +149,15 @@ async function promptRemote(flags) {
 }
 
 async function promptAuthMode(flags) {
-    if (flags["auth-mode"] === "bearer" || flags["auth-mode"] === "cookie") {
-        return flags["auth-mode"];
-    }
+    const allowed = new Set(["bearer", "cookie", "mock"]);
+    if (allowed.has(flags["auth-mode"])) return flags["auth-mode"];
     if (flags["non-interactive"]) return "bearer";
     return askChoice(
         "Authentication mode",
         [
             { label: "Bearer token (recommended default)", value: "bearer" },
             { label: "SPA cookie (Sanctum stateful)", value: "cookie" },
+            { label: "Mock (frontend-only development, no backend calls)", value: "mock" },
         ],
         0,
     );

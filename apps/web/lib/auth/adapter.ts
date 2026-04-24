@@ -1,4 +1,4 @@
-import type { StoredAuth } from "../auth";
+import type { StoredAuth } from "./storage";
 
 export type LoginPayload = { email: string; password: string };
 
@@ -9,8 +9,10 @@ export type RegisterPayload = {
     password_confirmation: string;
 };
 
+export type AuthMode = "bearer" | "cookie" | "mock";
+
 export type AuthAdapter = {
-    mode: "bearer" | "cookie";
+    mode: AuthMode;
     login: (payload: LoginPayload) => Promise<StoredAuth>;
     register: (payload: RegisterPayload) => Promise<StoredAuth>;
     me: () => Promise<StoredAuth["user"]>;

@@ -80,9 +80,15 @@ apps/web/
 │   │   ├── login/
 │   │   │   ├── page.tsx
 │   │   │   └── LoginForm.tsx  shadcn + zod + react-hook-form
-│   │   └── register/
+│   │   ├── register/
+│   │   │   ├── page.tsx
+│   │   │   └── RegisterForm.tsx
+│   │   ├── forgot-password/
+│   │   │   ├── page.tsx
+│   │   │   └── ForgotPasswordForm.tsx
+│   │   └── reset-password/
 │   │       ├── page.tsx
-│   │       └── RegisterForm.tsx
+│   │       └── ResetPasswordForm.tsx
 │   ├── (app)/                 Authenticated route group
 │   │   ├── layout.tsx         Waits for AuthProvider, redirects if anon
 │   │   └── dashboard/page.tsx Proof-of-install page
@@ -102,7 +108,8 @@ apps/web/
 │       ├── storage.ts         localStorage + cookie hint helpers
 │       └── adapters/
 │           ├── bearer.ts      Default
-│           └── cookie.ts      Sanctum SPA-cookie
+│           ├── cookie.ts      Sanctum SPA-cookie
+│           └── mock.ts        Frontend-only dev (NEXT_PUBLIC_AUTH_MODE=mock)
 ├── middleware.ts              Guards /dashboard via auth_hint cookie
 ├── next.config.ts             Minimal; no rewrites
 ├── .env.local.example         committed
