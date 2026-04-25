@@ -47,7 +47,22 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION_MINUTES') !== null
+        ? (int) env('SANCTUM_TOKEN_EXPIRATION_MINUTES')
+        : null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Token Expiration (Hours)
+    |--------------------------------------------------------------------------
+    |
+    | Convenience value used by the starter's AuthController when issuing a
+    | bearer token. Set to 0 or leave unset to issue tokens without an
+    | explicit expiration.
+    |
+    */
+
+    'token_expiration_hours' => (int) env('SANCTUM_TOKEN_EXPIRATION_HOURS', 8),
 
     /*
     |--------------------------------------------------------------------------

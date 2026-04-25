@@ -19,8 +19,11 @@ pnpm-debug.log*
 # Env files
 .env
 .env.*
+!.env.example
 apps/*/.env
 apps/*/.env.*
+!apps/*/.env.example
+!apps/*/.env.local.example
 
 # Editor
 .vscode/
@@ -29,10 +32,14 @@ apps/*/.env.*
 
 # Laravel
 apps/api/vendor/
-apps/api/storage/
-apps/api/bootstrap/cache/
-# Laravel caches
+# bootstrap/cache and storage/ directories are kept via nested .gitignore
+# files so `composer install` / `artisan` have somewhere to write runtime
+# artifacts. Their contents are ignored by those nested files.
 apps/api/*.cache
+
+# SQLite local DB
+apps/api/database/*.sqlite
+apps/api/database/*.sqlite-journal
 
 # Build outputs
 apps/*/dist/
