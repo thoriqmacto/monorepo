@@ -10,7 +10,9 @@ use App\Http\Requests\Api\V1\ResetPasswordRequest;
 use App\Http\Requests\Api\V1\UpdateMeRequest;
 use App\Http\Requests\Api\V1\UpdatePasswordRequest;
 use App\Models\User;
+use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -28,6 +30,9 @@ class AuthController extends Controller
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
         ]);
+
+        // MustVerifyEmail interface — kicks off the verification email.
+        $user->sendEmailVerificationNotification();
 
         return $this->issueTokenResponse($user, $request, status: 201);
     }
@@ -50,17 +55,26 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         return response()->json([
-            'user' => $request->user()->only(['id', 'name', 'email', 'created_at']),
+            'user' => $this->presentUser($request->user()),
         ]);
     }
 
     public function updateMe(UpdateMeRequest $request): JsonResponse
     {
         $user = $request->user();
+        $emailChanged = $request->filled('email')
+            && $request->validated('email') !== $user->email;
+
         $user->fill($request->validated())->save();
 
+        // Changing email invalidates verification.
+        if ($emailChanged) {
+            $user->forceFill(['email_verified_at' => null])->save();
+            $user->sendEmailVerificationNotification();
+        }
+
         return response()->json([
-            'user' => $user->only(['id', 'name', 'email', 'created_at']),
+            'user' => $this->presentUser($user->fresh()),
         ]);
     }
 
@@ -136,10 +150,51 @@ class AuthController extends Controller
         $token = $user->createToken($tokenName, ['*'], $expiresAt);
 
         return response()->json([
-            'user' => $user->only(['id', 'name', 'email', 'created_at']),
+            'user' => $this->presentUser($user),
             'token' => $token->plainTextToken,
             'token_type' => 'Bearer',
             'expires_at' => $expiresAt?->toIso8601String(),
         ], $status);
+    }
+
+    public function sendVerificationEmail(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email already verified.']);
+        }
+
+        $user->sendEmailVerificationNotification();
+
+        return response()->json(['message' => 'Verification link sent.']);
+    }
+
+    public function verifyEmail(Request $request, int $id, string $hash): RedirectResponse
+    {
+        $user = User::findOrFail($id);
+        $frontend = rtrim((string) env('FRONTEND_URL', 'http://localhost:3000'), '/');
+
+        if (! hash_equals(sha1($user->getEmailForVerification()), $hash)) {
+            return redirect("{$frontend}/verify-email?status=invalid");
+        }
+
+        if (! $user->hasVerifiedEmail()) {
+            $user->markEmailAsVerified();
+            event(new Verified($user));
+        }
+
+        return redirect("{$frontend}/verify-email?status=verified");
+    }
+
+    private function presentUser(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+            'created_at' => $user->created_at?->toIso8601String(),
+        ];
     }
 }

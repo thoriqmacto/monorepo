@@ -124,6 +124,42 @@ function ProfileSection() {
     );
 }
 
+function VerifyEmailSection() {
+    const { user } = useAuth();
+    const [sending, setSending] = useState(false);
+
+    if (!user || user.email_verified_at) return null;
+
+    async function onResend() {
+        setSending(true);
+        try {
+            await api.post("/email/verification-notification");
+            toast.success("Verification email sent. Check your inbox.");
+        } catch (err) {
+            toast.error(readError(err, "Could not send verification email."));
+        } finally {
+            setSending(false);
+        }
+    }
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Verify your email</CardTitle>
+                <CardDescription>
+                    We haven&apos;t confirmed <code className="font-mono">{user.email}</code> yet.
+                    Resend the verification link to finish setup.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Button onClick={() => void onResend()} disabled={sending}>
+                    {sending ? "Sending…" : "Resend verification email"}
+                </Button>
+            </CardContent>
+        </Card>
+    );
+}
+
 function PasswordSection() {
     const [submitting, setSubmitting] = useState(false);
 
@@ -217,6 +253,7 @@ export default function SettingsClient() {
                     Update your profile and password.
                 </p>
             </div>
+            <VerifyEmailSection />
             <ProfileSection />
             <PasswordSection />
         </section>

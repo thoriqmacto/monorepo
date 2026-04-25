@@ -3,9 +3,12 @@
 namespace App\Providers;
 
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,6 +28,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureRateLimiters();
         $this->configurePasswordResetUrl();
+        $this->configureEmailVerificationUrl();
     }
 
     private function configureRateLimiters(): void
@@ -50,6 +54,23 @@ class AppServiceProvider extends ServiceProvider
             ]);
 
             return "{$frontend}/reset-password?{$query}";
+        });
+    }
+
+    private function configureEmailVerificationUrl(): void
+    {
+        // Email verification link points at the backend so signature
+        // validation runs there. The backend redirects to the frontend
+        // with ?status=verified after success.
+        VerifyEmail::createUrlUsing(function ($user): string {
+            return URL::temporarySignedRoute(
+                'verification.verify',
+                Carbon::now()->addMinutes((int) env('VERIFICATION_LINK_TTL_MINUTES', 60)),
+                [
+                    'id' => $user->getKey(),
+                    'hash' => sha1($user->getEmailForVerification()),
+                ],
+            );
         });
     }
 }

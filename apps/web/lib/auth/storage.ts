@@ -2,6 +2,7 @@ export type StoredAuthUser = {
     id: number;
     name: string;
     email: string;
+    email_verified_at?: string | null;
 };
 
 export type StoredAuth = {

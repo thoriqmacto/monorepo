@@ -112,6 +112,17 @@ Shipped and enabled by default:
 - In local dev the default mail driver is `log`, so the link appears in `apps/api/storage/logs/laravel.log`.
 - Frontend pages: `/forgot-password`, `/reset-password`.
 
+### Email verification
+
+The `User` model implements `MustVerifyEmail`. After register, Laravel sends a signed verification link (TTL controlled by `VERIFICATION_LINK_TTL_MINUTES`, default 60).
+
+- The link in the email points at the **backend** route `/api/v1/email/verify/{id}/{hash}`. The `signed` middleware verifies the URL hasn't been tampered with — no auth header required.
+- On success the backend redirects to `${FRONTEND_URL}/verify-email?status=verified`. On a wrong hash → `?status=invalid`. On a tampered signature → 403.
+- `/api/v1/email/verification-notification` (auth required, throttled) lets a signed-in user resend the email.
+- Changing your email via `PATCH /api/v1/me` clears `email_verified_at` and triggers a new verification email automatically.
+- The starter does **not** apply the `verified` middleware to any route — it just makes verification status available. Add `->middleware('verified')` to any route you want to gate.
+- Frontend: `/verify-email` page (handles the redirect-back), plus a "Verify your email" card in `/settings` with a "Resend" button shown only when the user is unverified.
+
 ---
 
 ## API routing / base URL
@@ -131,6 +142,8 @@ Endpoints (all JSON):
 | GET  | `/api/v1/me` | bearer | Current user. |
 | PATCH | `/api/v1/me` | bearer | Update name/email. |
 | PATCH | `/api/v1/me/password` | bearer | Change password (requires current). Revokes other tokens. |
+| POST | `/api/v1/email/verification-notification` | bearer | Re-send the verify-your-email link. Throttled. |
+| GET  | `/api/v1/email/verify/{id}/{hash}` | signed URL | Email verification target. Marks user verified, redirects to `${FRONTEND_URL}/verify-email?status=verified`. |
 | POST | `/api/v1/logout` | bearer | Revokes current token. |
 | GET  | `/api/v1/notes` | bearer | Example resource — list. |
 | POST | `/api/v1/notes` | bearer | Example resource — create. |

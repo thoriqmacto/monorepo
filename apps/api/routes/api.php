@@ -16,6 +16,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/login', [AuthController::class, 'login']);
         Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
+        // Email verification — link target. Signed URL, no auth.
+        Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
+            ->middleware('signed')
+            ->name('verification.verify');
     });
 
     Route::middleware('auth:sanctum')->group(function () {
@@ -23,6 +28,9 @@ Route::prefix('v1')->group(function () {
         Route::patch('/me', [AuthController::class, 'updateMe']);
         Route::patch('/me/password', [AuthController::class, 'updatePassword']);
         Route::post('/logout', [AuthController::class, 'logout']);
+
+        Route::post('/email/verification-notification', [AuthController::class, 'sendVerificationEmail'])
+            ->middleware('throttle:auth');
 
         // Example resource — safe to remove. See NoteController.
         Route::apiResource('notes', NoteController::class)

@@ -86,12 +86,18 @@ apps/web/
 │   │   ├── forgot-password/
 │   │   │   ├── page.tsx
 │   │   │   └── ForgotPasswordForm.tsx
-│   │   └── reset-password/
+│   │   ├── reset-password/
+│   │   │   ├── page.tsx
+│   │   │   └── ResetPasswordForm.tsx
+│   │   └── verify-email/      Reads ?status=… after backend redirect
 │   │       ├── page.tsx
-│   │       └── ResetPasswordForm.tsx
+│   │       └── VerifyEmailClient.tsx
 │   ├── (app)/                 Authenticated route group
 │   │   ├── layout.tsx         Waits for AuthProvider, redirects if anon
 │   │   ├── dashboard/page.tsx Proof-of-install page
+│   │   ├── settings/          Profile, password, email verification banner
+│   │   │   ├── page.tsx
+│   │   │   └── SettingsClient.tsx
 │   │   └── notes/             Example resource — safe to delete
 │   │       ├── page.tsx
 │   │       └── NotesClient.tsx (SWR list, create, optimistic delete)
