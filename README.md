@@ -130,6 +130,7 @@ Endpoints (all JSON):
 | POST | `/api/v1/reset-password` | public | Throttled. |
 | GET  | `/api/v1/me` | bearer | Current user. |
 | PATCH | `/api/v1/me` | bearer | Update name/email. |
+| PATCH | `/api/v1/me/password` | bearer | Change password (requires current). Revokes other tokens. |
 | POST | `/api/v1/logout` | bearer | Revokes current token. |
 | GET  | `/api/v1/notes` | bearer | Example resource — list. |
 | POST | `/api/v1/notes` | bearer | Example resource — create. |

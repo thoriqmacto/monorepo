@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\LoginRequest;
 use App\Http\Requests\Api\V1\RegisterRequest;
 use App\Http\Requests\Api\V1\ResetPasswordRequest;
 use App\Http\Requests\Api\V1\UpdateMeRequest;
+use App\Http\Requests\Api\V1\UpdatePasswordRequest;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,6 +62,21 @@ class AuthController extends Controller
         return response()->json([
             'user' => $user->only(['id', 'name', 'email', 'created_at']),
         ]);
+    }
+
+    public function updatePassword(UpdatePasswordRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->forceFill(['password' => Hash::make($request->validated('password'))])->save();
+
+        // Revoke all OTHER tokens so other devices/browsers are signed out,
+        // but keep the current token alive so this caller stays authenticated.
+        $currentTokenId = $request->user()->currentAccessToken()?->id;
+        $user->tokens()
+            ->when($currentTokenId, fn ($q) => $q->where('id', '!=', $currentTokenId))
+            ->delete();
+
+        return response()->json(['message' => 'Password updated.']);
     }
 
     public function logout(Request $request): JsonResponse
