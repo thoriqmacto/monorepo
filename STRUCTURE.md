@@ -91,7 +91,10 @@ apps/web/
 │   │       └── ResetPasswordForm.tsx
 │   ├── (app)/                 Authenticated route group
 │   │   ├── layout.tsx         Waits for AuthProvider, redirects if anon
-│   │   └── dashboard/page.tsx Proof-of-install page
+│   │   ├── dashboard/page.tsx Proof-of-install page
+│   │   └── notes/             Example resource — safe to delete
+│   │       ├── page.tsx
+│   │       └── NotesClient.tsx (SWR list, create, optimistic delete)
 │   ├── api/[...path]/         Same-origin proxy to the Laravel API
 │   ├── layout.tsx             Root layout (fonts, <Providers>)
 │   ├── providers.tsx          AuthProvider + sonner Toaster
@@ -146,6 +149,26 @@ scripts/
 ```
 
 `setup.mjs` composes these; each is individually callable.
+
+---
+
+## Example resource (Notes)
+
+A complete demo of the authenticated CRUD pattern. Copy as a template, or remove by deleting:
+
+**Backend**
+- `apps/api/database/migrations/*_create_notes_table.php`
+- `apps/api/app/Models/Note.php`
+- `apps/api/app/Http/Controllers/Api/V1/NoteController.php`
+- `apps/api/app/Http/Requests/Api/V1/StoreNoteRequest.php`
+- `apps/api/database/factories/NoteFactory.php`
+- `apps/api/tests/Feature/Notes/`
+- The `apiResource('notes', ...)` line in `routes/api.php`
+
+**Frontend**
+- `apps/web/app/(app)/notes/`
+- The `/notes` entry in `PROTECTED_PREFIXES` and the `matcher` array in `apps/web/middleware.ts`
+- The `<Link href="/notes">` in `apps/web/app/(app)/layout.tsx`
 
 ---
 

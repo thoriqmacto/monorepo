@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\NoteController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/ping', fn () => response()->json([
@@ -21,5 +22,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::patch('/me', [AuthController::class, 'updateMe']);
         Route::post('/logout', [AuthController::class, 'logout']);
+
+        // Example resource — safe to remove. See NoteController.
+        Route::apiResource('notes', NoteController::class)
+            ->only(['index', 'store', 'destroy']);
     });
 });

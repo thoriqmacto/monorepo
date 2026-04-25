@@ -131,6 +131,9 @@ Endpoints (all JSON):
 | GET  | `/api/v1/me` | bearer | Current user. |
 | PATCH | `/api/v1/me` | bearer | Update name/email. |
 | POST | `/api/v1/logout` | bearer | Revokes current token. |
+| GET  | `/api/v1/notes` | bearer | Example resource — list. |
+| POST | `/api/v1/notes` | bearer | Example resource — create. |
+| DELETE | `/api/v1/notes/{id}` | bearer | Example resource — delete. |
 
 Public auth endpoints are rate-limited to `AUTH_THROTTLE_PER_MINUTE` requests per minute (default `10`), keyed by authenticated user or IP. Exceed the limit and the API responds `429`.
 
@@ -195,6 +198,12 @@ See `apps/web/.env.local.example`.
 - **`401` on `/me` right after login.** You're probably in SPA-cookie mode without `CORS_SUPPORTS_CREDENTIALS=true` or with a missing `SANCTUM_STATEFUL_DOMAINS` entry. Or, in bearer mode, localStorage was cleared. Switch back to bearer (the default) with `npm run setup:env`.
 - **`/dashboard` redirects to `/login`.** Middleware relies on the `auth_hint` cookie set at login time. If you cleared cookies, sign in again.
 - **Herd link fails.** You're on Linux/Windows — Herd integration is macOS only. Answer "no" to the Herd prompt and use `php artisan serve`.
+
+---
+
+## Example resource
+
+A small **Notes** demo (`/notes` in the web app, `/api/v1/notes` on the API) ships as the end-to-end CRUD template. It's deliberately domain-neutral — copy it when building a real resource, or delete it when you don't need it. Every Notes file has a header comment and `STRUCTURE.md` lists the full removal checklist.
 
 ---
 
