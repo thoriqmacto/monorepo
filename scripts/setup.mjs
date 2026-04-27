@@ -4,7 +4,7 @@
 //   node scripts/setup.mjs                 # interactive full setup
 //   node scripts/setup.mjs env             # rewrite env files only
 //   node scripts/setup.mjs check           # environment preflight + smoke test
-//   node scripts/setup.mjs --non-interactive --mode=local [--skip-deps]
+//   node scripts/setup.mjs --non-interactive --mode=local [--project-name=MyApp] [--skip-deps]
 //
 // Stdlib only. No new runtime packages.
 
@@ -70,6 +70,19 @@ async function preflight() {
 
 function projectSlug() {
     return path.basename(ROOT).toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+}
+
+function projectNameDefault() {
+    // Turn the directory name into a readable title: "my-app" → "My App"
+    return path.basename(ROOT)
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+async function promptProjectName(flags) {
+    if (flags["project-name"]) return flags["project-name"];
+    if (flags["non-interactive"]) return projectNameDefault();
+    return ask("Project name (used for APP_NAME and browser title)", projectNameDefault());
 }
 
 async function promptMode(flags) {
@@ -163,10 +176,11 @@ async function promptAuthMode(flags) {
     );
 }
 
-async function writeEnvs({ mode, target, authMode }) {
+async function writeEnvs({ mode, target, authMode, projectName }) {
     const apiExisting = readEnvFile(API_ENV);
     const apiMerged = {
         ...apiExisting,
+        APP_NAME: projectName,
         APP_URL: target.appUrl,
         CORS_ALLOWED_ORIGINS: target.corsOrigins,
         CORS_SUPPORTS_CREDENTIALS: authMode === "cookie" ? "true" : "false",
@@ -182,6 +196,7 @@ async function writeEnvs({ mode, target, authMode }) {
     const webExisting = readEnvFile(WEB_ENV);
     const webMerged = {
         ...webExisting,
+        NEXT_PUBLIC_APP_NAME: projectName,
         NEXT_PUBLIC_API_BASE_URL: target.apiBaseUrl,
         NEXT_PUBLIC_AUTH_MODE: authMode,
         API_PROXY_TARGET: target.proxyTarget,
@@ -189,7 +204,7 @@ async function writeEnvs({ mode, target, authMode }) {
     writeEnvFile(WEB_ENV, WEB_ENV_EXAMPLE, webMerged);
     ok(`Wrote ${path.relative(ROOT, WEB_ENV)}`);
 
-    return { mode, target, authMode };
+    return { mode, target, authMode, projectName };
 }
 
 async function installDeps({ skipDeps }) {
@@ -250,13 +265,14 @@ async function commandSetup(args) {
         warn("php/composer missing — continuing will fail at the Laravel bootstrap step.");
     }
 
+    const projectName = await promptProjectName(args.flags);
     const mode = await promptMode(args.flags);
     section(`Mode: ${mode}`);
     const target =
         mode === "local" ? await promptLocal(args.flags) : await promptRemote(args.flags);
     const authMode = await promptAuthMode(args.flags);
 
-    await writeEnvs({ mode, target, authMode });
+    await writeEnvs({ mode, target, authMode, projectName });
     await installDeps({ skipDeps: args.flags["skip-deps"] });
 
     let seed = false;
@@ -292,11 +308,12 @@ async function commandSetup(args) {
 async function commandEnv(args) {
     const tools = await preflight();
     void tools;
+    const projectName = await promptProjectName(args.flags);
     const mode = await promptMode(args.flags);
     const target =
         mode === "local" ? await promptLocal(args.flags) : await promptRemote(args.flags);
     const authMode = await promptAuthMode(args.flags);
-    await writeEnvs({ mode, target, authMode });
+    await writeEnvs({ mode, target, authMode, projectName });
 }
 
 async function commandCheck() {

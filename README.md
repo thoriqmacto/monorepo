@@ -16,26 +16,130 @@ After setup you get a working baseline:
 
 ---
 
-## Quickstart
+## Fresh install — local mode
 
-Requires **Node ≥ 20**, **PHP ≥ 8.2**, **Composer**. Optional: **Laravel Herd** (macOS).
+The API runs on your machine. Requires **Node ≥ 20**, **PHP ≥ 8.2**, **Composer**.
 
 ```bash
+# 1. Clone into the name you want for your project
+git clone https://github.com/thoriqmacto/monorepo.git my-project
+cd my-project
+
+# 2. Install Node dependencies
 npm install
-npm run setup     # interactive — choose local or remote mode
-npm run dev       # runs API + web concurrently via Turbo
+
+# 3. Interactive setup — picks project name, mode, port, auth mode
+npm run setup
 ```
 
-Visit http://localhost:3000 → sign in as the seeded demo user or register a new account → you land on `/dashboard`.
+What the setup wizard asks:
 
-**Demo credentials** (after running `db:seed`, which `npm run setup` offers to do for you):
+| Prompt | Notes |
+|---|---|
+| **Project name** | Sets `APP_NAME` (Laravel) and `NEXT_PUBLIC_APP_NAME` (browser title). Defaults to the directory name. |
+| **Where will the API run?** | Pick "Local machine". |
+| **Laravel Herd?** (macOS only) | If yes: asks for Herd parked root + project slug, symlinks `apps/api` there. API URL becomes `http://<slug>.test`. |
+| **API port** (no Herd) | Default `8000`. API URL becomes `http://localhost:<port>`. |
+| **Auth mode** | `bearer` (default) or `cookie`. |
+| **Seed demo user?** | Creates `demo@example.com` / `password`. |
+
+```bash
+# 4. Start everything
+npm run dev
+```
+
+Visit **http://localhost:3000** → sign in or register → `/dashboard`.
+
+**Demo credentials** (after seeding):
 
 ```
 email    demo@example.com
 password password
 ```
 
-Re-run `npm run setup` any time to regenerate env files or change mode.
+---
+
+## Fresh install — remote mode
+
+The API is hosted elsewhere; only the Next.js frontend runs locally.
+
+```bash
+# 1. Clone into the name you want
+git clone https://github.com/thoriqmacto/monorepo.git my-project
+cd my-project
+
+# 2. Install Node dependencies
+npm install
+
+# 3. Interactive setup
+npm run setup
+```
+
+When prompted:
+
+| Prompt | Example value |
+|---|---|
+| **Project name** | `My App` |
+| **Where will the API run?** | Pick "Remote backend". |
+| **Backend API origin** | `https://api.example.com` (no path) |
+| **Frontend origin** | `https://app.example.com` (for CORS) |
+| **Auth mode** | `bearer` (default) |
+
+Laravel bootstrap (migrate, key:generate) is skipped in remote mode — run those on the remote host.
+
+```bash
+# 4. Start the frontend only
+npm run dev:web
+```
+
+---
+
+## Non-interactive install
+
+```bash
+# Local
+node scripts/setup.mjs \
+  --non-interactive \
+  --project-name="My App" \
+  --mode=local \
+  --auth-mode=bearer \
+  --port=8000 \
+  --seed
+
+# Remote
+node scripts/setup.mjs \
+  --non-interactive \
+  --project-name="My App" \
+  --mode=remote \
+  --api-url=https://api.example.com \
+  --frontend-origin=https://app.example.com
+```
+
+---
+
+## How project naming works
+
+When you clone the repo as `my-project` and run setup, the setup wizard:
+
+1. Prompts "Project name" — defaults to the directory name (e.g. `My Project` from `my-project`).
+2. Writes `APP_NAME=My Project` into `apps/api/.env` — controls the Laravel app name, mail sender name, and log prefix.
+3. Writes `NEXT_PUBLIC_APP_NAME=My Project` into `apps/web/.env.local` — used for the browser tab title and any UI branding.
+
+To rename the project later without re-running full setup:
+
+```bash
+npm run setup:env   # reruns only the env-writing step
+```
+
+Or edit the two env files directly:
+
+```bash
+# apps/api/.env
+APP_NAME=New Name
+
+# apps/web/.env.local
+NEXT_PUBLIC_APP_NAME=New Name
+```
 
 ---
 
@@ -43,43 +147,19 @@ Re-run `npm run setup` any time to regenerate env files or change mode.
 
 ### Local mode (default)
 
-The API runs on your machine.
-
 ```bash
 npm run setup           # pick "Local machine"
 ```
-
-You'll be asked:
-
-| Prompt | What it does |
-|---|---|
-| Use Laravel Herd? | If yes, asks for the Herd parked root (default `~/Herd`) and a project slug, then symlinks `apps/api` there. Your API URL becomes `http://<slug>.test`. macOS only. |
-| Use Herd → no | Falls back to `php artisan serve`. Asks for a port (default `8000`). API URL is `http://localhost:<port>`. |
-| Auth mode | Bearer token (default) or SPA cookie. |
 
 Setup writes `apps/api/.env` and `apps/web/.env.local`, runs `composer install`, creates `apps/api/database/database.sqlite`, runs `php artisan key:generate` and `php artisan migrate`.
 
 ### Remote mode
 
-The API is hosted elsewhere and the web app talks to it.
-
 ```bash
 npm run setup           # pick "Remote backend"
 ```
 
-Prompts:
-
-- **Backend API origin** — `https://api.example.com` (no path).
-- **Frontend origin** — the URL your Next.js app is served from (used for CORS).
-
-Setup writes env files and dependencies. Laravel bootstrap (migrate, key:generate) is skipped in remote mode — do that on the remote host.
-
-### Non-interactive
-
-```bash
-node scripts/setup.mjs --non-interactive --mode=local --auth-mode=bearer --port=8000
-node scripts/setup.mjs --non-interactive --mode=remote --api-url=https://api.example.com --frontend-origin=https://app.example.com
-```
+Setup writes env files and installs Node dependencies. Laravel bootstrap is skipped.
 
 ---
 
@@ -191,6 +271,7 @@ npm run setup
 ### `apps/api/.env`
 See `apps/api/.env.example`. Key values the setup script manages:
 
+- `APP_NAME` — project name used in mail sender, log prefix, and session cookie name.
 - `APP_URL` — full URL the API is served at.
 - `CORS_ALLOWED_ORIGINS` — comma-separated origins the browser may call from.
 - `CORS_SUPPORTS_CREDENTIALS` — `true` only in SPA-cookie mode.
@@ -200,6 +281,7 @@ See `apps/api/.env.example`. Key values the setup script manages:
 ### `apps/web/.env.local`
 See `apps/web/.env.local.example`.
 
+- `NEXT_PUBLIC_APP_NAME` — shown in the browser tab and any UI branding spots.
 - `NEXT_PUBLIC_API_BASE_URL` — includes `/api/v1`.
 - `NEXT_PUBLIC_AUTH_MODE` — `bearer` (default) or `cookie`.
 - `API_PROXY_TARGET` — server-side proxy target (origin only, no path).
