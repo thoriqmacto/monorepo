@@ -111,13 +111,56 @@ Laravel bootstrap (migrate, key:generate) is skipped in remote mode — run thos
 
 ## Connect the new project to GitHub
 
-After running setup, create an **empty** GitHub repository (no README, no `.gitignore`, no license — adding those creates a commit that conflicts with your first push). Then:
+After running setup, create an **empty** GitHub repository (no README, no `.gitignore`, no license — adding those creates a commit that conflicts with your first push).
+
+### Prerequisite: SSH key
+
+GitHub no longer accepts account passwords for Git operations. **SSH is the recommended method.**
+
+If you don't already have an SSH key registered with GitHub:
+
+```bash
+# Generate a key (skip if you already have one)
+ssh-keygen -t ed25519 -C "your-email@example.com"
+
+# Copy the public key
+cat ~/.ssh/id_ed25519.pub
+```
+
+Paste the output into **GitHub → Settings → SSH and GPG keys → New SSH key**.
+
+Then verify the connection:
+
+```bash
+ssh -T git@github.com
+```
+
+On the first connection Git may ask whether to trust GitHub's host key — type `yes`. A successful response looks like:
+
+```
+Hi <username>! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+### Push your project
 
 ```bash
 git add .
 git commit -m "Initial project setup"
+
+git remote add origin git@github.com:<username>/<new-repository>.git
+git remote -v   # confirm the remote is correct
+
+git push -u origin main
+```
+
+### HTTPS alternative (requires a Personal Access Token)
+
+If you prefer HTTPS, note that GitHub **no longer accepts your account password** for Git operations — you must use a [Personal Access Token (PAT)](https://github.com/settings/tokens) in its place:
+
+```bash
 git remote add origin https://github.com/<username>/<new-repository>.git
 git push -u origin main
+# When prompted for a password, enter your PAT, not your GitHub password.
 ```
 
 ---
@@ -128,9 +171,28 @@ If you want to preserve the starter's Git history and simply point the repositor
 
 ```bash
 git remote remove origin
-git remote add origin https://github.com/<username>/<new-repository>.git
+git remote add origin git@github.com:<username>/<new-repository>.git
 git push -u origin main
 ```
+
+---
+
+## VPS / server deployments
+
+SSH is the natural choice on a server — once the key is registered you can push and pull without interactive prompts.
+
+```bash
+# On the server
+ssh-keygen -t ed25519 -C "deploy@myserver"
+cat ~/.ssh/id_ed25519.pub   # add this to GitHub
+
+ssh -T git@github.com       # verify
+
+git remote set-url origin git@github.com:<username>/<repository>.git
+git push -u origin main
+```
+
+For a production server that only needs access to a single repository, consider a **GitHub Deploy Key** (repository Settings → Deploy keys) instead of adding the server key to your personal GitHub account. Deploy keys are scoped to one repository and can be made read-only.
 
 ---
 
