@@ -6,7 +6,6 @@ use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Password;
 use Tests\TestCase;
 
 class ForgotPasswordTest extends TestCase
@@ -31,8 +30,7 @@ class ForgotPasswordTest extends TestCase
         $url = (new ResetPassword('sample-token'))->toMail($user)->actionUrl;
 
         // The default FRONTEND_URL is http://localhost:3000 (from .env.example).
-        $expectedPrefix = rtrim((string) env('FRONTEND_URL', 'http://localhost:3000'), '/')
-            . '/reset-password?';
+        $expectedPrefix = rtrim((string) env('FRONTEND_URL', 'http://localhost:3000'), '/').'/reset-password?';
 
         $this->assertStringStartsWith($expectedPrefix, $url);
         $this->assertStringContainsString('token=sample-token', $url);
