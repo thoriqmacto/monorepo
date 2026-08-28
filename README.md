@@ -25,12 +25,29 @@ The API runs on your machine. Requires **Node ≥ 20**, **PHP ≥ 8.2**, **Compo
 git clone https://github.com/thoriqmacto/monorepo.git my-project
 cd my-project
 
-# 2. Install Node dependencies
+# 2. Start a fresh Git repository for this project
+rm -rf .git
+git init
+git branch -M main
+
+# 3. Install Node dependencies
 npm install
 
-# 3. Interactive setup — picks project name, mode, port, auth mode
+# 4. Interactive setup — picks project name, mode, port, auth mode
 npm run setup
+
+# 5. Start everything
+npm run dev
 ```
+
+> **Windows PowerShell** — replace step 2 with:
+> ```powershell
+> Remove-Item -Recurse -Force .git
+> git init
+> git branch -M main
+> ```
+
+> **Why remove `.git`?** `git clone` creates a repository already linked to the original `monorepo` remote. Removing `.git` and running `git init` gives your project a clean history with no connection to the starter. If you'd rather keep the starter's history, skip step 2 and jump to [keeping the starter history](#keeping-the-starter-history) below.
 
 What the setup wizard asks:
 
@@ -42,11 +59,6 @@ What the setup wizard asks:
 | **API port** (no Herd) | Default `8000`. API URL becomes `http://localhost:<port>`. |
 | **Auth mode** | `bearer` (default) or `cookie`. |
 | **Seed demo user?** | Creates `demo@example.com` / `password`. |
-
-```bash
-# 4. Start everything
-npm run dev
-```
 
 Visit **http://localhost:3000** → sign in or register → `/dashboard`.
 
@@ -68,11 +80,19 @@ The API is hosted elsewhere; only the Next.js frontend runs locally.
 git clone https://github.com/thoriqmacto/monorepo.git my-project
 cd my-project
 
-# 2. Install Node dependencies
+# 2. Start a fresh Git repository for this project
+rm -rf .git
+git init
+git branch -M main
+
+# 3. Install Node dependencies
 npm install
 
-# 3. Interactive setup
+# 4. Interactive setup
 npm run setup
+
+# 5. Start the frontend only
+npm run dev:web
 ```
 
 When prompted:
@@ -87,9 +107,29 @@ When prompted:
 
 Laravel bootstrap (migrate, key:generate) is skipped in remote mode — run those on the remote host.
 
+---
+
+## Connect the new project to GitHub
+
+After running setup, create an **empty** GitHub repository (no README, no `.gitignore`, no license — adding those creates a commit that conflicts with your first push). Then:
+
 ```bash
-# 4. Start the frontend only
-npm run dev:web
+git add .
+git commit -m "Initial project setup"
+git remote add origin https://github.com/<username>/<new-repository>.git
+git push -u origin main
+```
+
+---
+
+## Keeping the starter history
+
+If you want to preserve the starter's Git history and simply point the repository at your own remote, skip the `rm -rf .git` step and replace the remote instead:
+
+```bash
+git remote remove origin
+git remote add origin https://github.com/<username>/<new-repository>.git
+git push -u origin main
 ```
 
 ---
