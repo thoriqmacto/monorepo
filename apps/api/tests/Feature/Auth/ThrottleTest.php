@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
@@ -26,8 +27,8 @@ class ThrottleTest extends TestCase
         putenv('AUTH_THROTTLE_PER_MINUTE=3');
 
         // Re-register the limiter using the new limit so it picks up the env.
-        \Illuminate\Support\Facades\RateLimiter::for('auth', function ($request) {
-            return \Illuminate\Cache\RateLimiting\Limit::perMinute(3)
+        RateLimiter::for('auth', function ($request) {
+            return Limit::perMinute(3)
                 ->by((string) ($request->user()?->getAuthIdentifier() ?: $request->ip()));
         });
 

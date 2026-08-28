@@ -196,6 +196,142 @@ For a production server that only needs access to a single repository, consider 
 
 ---
 
+## Deploy the Next.js frontend to Vercel
+
+This repository is a monorepo. You import the **whole repository** into Vercel but configure it to deploy only `apps/web`. The Laravel API continues to run on its own server (VPS, managed host, etc.).
+
+```
+GitHub repository
+       │
+       ├── apps/api  → VPS / Laravel
+       │
+       └── apps/web  → Vercel / Next.js
+```
+
+The repository stays a single Git repository. Do **not** run `git init` inside `apps/web`:
+
+```bash
+# ✗ Wrong — creates a nested repository that Vercel cannot import correctly
+cd apps/web
+git init
+```
+
+### 1. Import the project into Vercel
+
+1. Go to [vercel.com](https://vercel.com) and choose **Add New → Project**.
+2. Import the GitHub repository you created from this starter.
+3. Configure the project settings:
+
+| Setting | Value |
+|---|---|
+| **Framework Preset** | `Next.js` |
+| **Root Directory** | `apps/web` |
+| **Node.js Version** | `20.x` or newer |
+| **Install Command** | *(leave as automatic)* |
+| **Build Command** | `cd ../.. && npx turbo run build --filter=web` |
+| **Output Directory** | *(framework default / `.next`)* |
+
+The Root Directory must be exactly:
+
+```
+apps/web
+```
+
+Not `web`, not `/apps/web` — Vercel expects the path relative to the repository root, without a leading slash.
+
+### 2. Why the custom build command
+
+The root of the repository holds the npm workspace and Turborepo configuration, so the build must be run from there. The recommended build command navigates up from `apps/web` before invoking Turbo:
+
+```bash
+cd ../.. && npx turbo run build --filter=web
+```
+
+`apps/web/package.json` still defines `"build": "next build"` — Turbo calls it through the workspace. You do not need to change any package scripts.
+
+### 3. Vercel environment variables
+
+Add these under **Vercel → Project → Settings → Environment Variables**:
+
+```env
+NEXT_PUBLIC_APP_NAME=My App
+NEXT_PUBLIC_API_BASE_URL=https://api.example.com/api/v1
+NEXT_PUBLIC_AUTH_MODE=bearer
+API_PROXY_TARGET=https://api.example.com
+```
+
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_APP_NAME` | Browser tab title and UI branding. |
+| `NEXT_PUBLIC_API_BASE_URL` | Full Laravel API URL — **must include `/api/v1`**. Example: `https://api.example.com/api/v1`. |
+| `NEXT_PUBLIC_AUTH_MODE` | `bearer` for the default Sanctum token flow. |
+| `API_PROXY_TARGET` | Laravel API origin — **no path, no `/api/v1`**. Example: `https://api.example.com`. |
+
+> **Warning:** Do not leave `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1` in production. Inside a Vercel deployment, `localhost` refers to the Vercel runtime itself — not your VPS. The API will be unreachable and every authenticated request will fail.
+
+### 4. Configure Laravel for the Vercel frontend
+
+On your VPS, update `apps/api/.env` to reflect the Vercel URL (Vercel provides a `*.vercel.app` URL immediately after import):
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://api.example.com
+FRONTEND_URL=https://my-app.vercel.app
+CORS_ALLOWED_ORIGINS=https://my-app.vercel.app
+CORS_SUPPORTS_CREDENTIALS=false
+```
+
+This example assumes the default bearer-token auth mode. Then refresh Laravel's configuration cache:
+
+```bash
+cd apps/api
+php artisan optimize:clear
+php artisan config:cache
+```
+
+### 5. After adding a custom domain
+
+Once you assign a production domain to the Vercel project (e.g. `https://app.example.com`), update the Laravel `.env`:
+
+```env
+FRONTEND_URL=https://app.example.com
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://my-app.vercel.app
+```
+
+Keeping the `*.vercel.app` origin in `CORS_ALLOWED_ORIGINS` is optional — it's useful if you want preview deployments to keep working against the production API.
+
+Run `php artisan config:cache` again after every `.env` change.
+
+### 6. Test the build locally before deploying
+
+From the repository root:
+
+```bash
+npm install
+npx turbo run build --filter=web
+```
+
+The output should show the `web` workspace running `next build`. A green local build means Vercel's build will succeed too.
+
+### Deployment checklist
+
+```
+[ ] GitHub repository pushed and connected to Vercel
+[ ] Root Directory = apps/web  (not "web" or "/apps/web")
+[ ] Framework = Next.js
+[ ] Node.js >= 20
+[ ] Build command uses Turbo  (cd ../.. && npx turbo run build --filter=web)
+[ ] NEXT_PUBLIC_API_BASE_URL points to production Laravel API (includes /api/v1)
+[ ] API_PROXY_TARGET points to API origin (no path)
+[ ] NEXT_PUBLIC_API_BASE_URL does NOT contain localhost
+[ ] Laravel CORS_ALLOWED_ORIGINS includes the Vercel/frontend domain
+[ ] Laravel config cache refreshed after .env changes
+[ ] Local build passes (npx turbo run build --filter=web)
+```
+
+---
+
 ## Non-interactive install
 
 ```bash

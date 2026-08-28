@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -42,7 +43,7 @@ class RegisterTest extends TestCase
 
     public function test_it_rejects_duplicate_email(): void
     {
-        \App\Models\User::factory()->create(['email' => 'jane@example.com']);
+        User::factory()->create(['email' => 'jane@example.com']);
 
         $this->postJson('/api/v1/register', [
             'name' => 'Jane Doe',
