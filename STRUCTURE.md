@@ -10,7 +10,11 @@ Top-level:
 ├── scripts/
 │   ├── setup.mjs              Interactive installer
 │   └── lib/                   Setup script modules (stdlib only)
-├── .github/workflows/ci.yml   Web + API CI
+├── deploy/
+│   └── nginx/api.conf         Reference nginx vhost for the deployed API
+├── .github/workflows/
+│   ├── ci.yml                 Web + API CI (tests, Pint, types, build, audits)
+│   └── backend-deploy.yml     Deploys apps/api to a VPS over SSH once CI is green on main
 ├── turbo.json                 Turbo pipeline
 ├── package.json               npm workspaces root
 ├── README.md                  Quickstart + ops
