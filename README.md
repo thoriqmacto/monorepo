@@ -14,6 +14,14 @@ After setup you get a working baseline:
 2. `/register` and `/login` auth flow
 3. `/dashboard` authenticated page that talks to the Laravel API
 
+Deploying it:
+
+| What | Goes where | Guide |
+|---|---|---|
+| `apps/api` | your own VPS, pushed by GitHub Actions over SSH (`.github/workflows/backend-deploy.yml`) | [Deploy the Laravel API to a VPS](#deploy-the-laravel-api-to-a-vps) |
+| `apps/web` | Vercel, built from the monorepo root | [Deploy the Next.js frontend to Vercel](#deploy-the-nextjs-frontend-to-vercel) |
+| both | the checks that gate every push (`.github/workflows/ci.yml`) | [Continuous integration](#continuous-integration) |
+
 ---
 
 ## Fresh install — local mode
@@ -177,28 +185,203 @@ git push -u origin main
 
 ---
 
-## VPS / server deployments
+## Deploy the Laravel API to a VPS
 
-SSH is the natural choice on a server — once the key is registered you can push and pull without interactive prompts.
+Two workflows ship in `.github/workflows/`:
 
-```bash
-# On the server
-ssh-keygen -t ed25519 -C "deploy@myserver"
-cat ~/.ssh/id_ed25519.pub   # add this to GitHub
+| File | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | every pull request, every push to `main` | Tests, formatting, type-check, build, dependency audits. See [Continuous integration](#continuous-integration). |
+| `backend-deploy.yml` | after **CI succeeds on `main`**, or a manual run | SSHes into your VPS and fast-forwards the clone that lives there to the commit CI just validated. |
 
-ssh -T git@github.com       # verify
-
-git remote set-url origin git@github.com:<username>/<repository>.git
-git push -u origin main
+```
+push to main ──▶ CI (ci.yml) ──green──▶ Deploy API (backend-deploy.yml) ──ssh──▶ VPS
+                                                                                 │
+                     apps/web is deployed separately by Vercel ◀─────────────────┘ (not touched)
 ```
 
-For a production server that only needs access to a single repository, consider a **GitHub Deploy Key** (repository Settings → Deploy keys) instead of adding the server key to your personal GitHub account. Deploy keys are scoped to one repository and can be made read-only.
+**The workflow deploys code; it does not provision the server.** It never writes `.env`,
+never installs nginx/PHP/MySQL, never creates the database, and never touches `apps/web`.
+Steps 1–3 below are one-time manual work on the box. Steps 4–5 are what make deploys
+automatic afterwards.
+
+### 1. Prepare the server (once)
+
+The deploy works by running `git fetch` + `git reset --hard <sha>` inside an existing
+clone, so the server needs a real, working checkout before the first deploy.
+
+```bash
+# On the VPS, as the user the deploy will log in as (e.g. "deploy")
+sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl php8.2-sqlite3 \
+                    php8.2-bcmath php8.2-intl composer nginx git
+
+# Give the server read-only pull access to the repository
+ssh-keygen -t ed25519 -C "deploy@myserver"
+cat ~/.ssh/id_ed25519.pub
+```
+
+Add that public key to **GitHub → your repository → Settings → Deploy keys → Add deploy
+key**, leaving "Allow write access" unchecked. A deploy key is scoped to this one
+repository; adding the server key to your personal account instead would give the box
+access to everything you can push to.
+
+Verify and clone:
+
+```bash
+ssh -T git@github.com     # type "yes" at the host-key prompt; must succeed non-interactively later
+cd /var/www
+git clone git@github.com:<username>/<repository>.git my-project
+cd my-project/apps/api
+
+cp .env.example .env
+# Edit .env: APP_ENV=production, APP_DEBUG=false, APP_URL, FRONTEND_URL,
+# CORS_ALLOWED_ORIGINS, DB_*, MAIL_*  — see "Environment reference" below.
+
+composer install --no-dev --optimize-autoloader
+php artisan key:generate
+php artisan migrate --force
+php artisan storage:link
+
+# Laravel must be able to write these; the deploy's `artisan down` needs it too
+sudo chown -R $USER:www-data storage bootstrap/cache
+sudo chmod -R ug+rwX storage bootstrap/cache
+```
+
+`.env` is gitignored, so `git reset --hard` during a deploy never clobbers it. That also
+means **the workflow cannot create it** — a missing `.env` on the server is a failed
+deploy, not a self-healing one.
+
+### 2. Install the nginx vhost (once)
+
+`deploy/nginx/api.conf` is the reference vhost, committed so it is reviewable instead of
+hand-edited on the box. Copy it and fill in the four placeholders it lists at the top:
+`server_name` (both blocks), the `ssl_certificate` / `ssl_certificate_key` paths, the
+`root` path (replace `YOUR_PROJECT` with your cloned directory name), and the PHP-FPM
+socket if you are not on the packaged `php8.2-fpm`.
+
+```bash
+sudo cp deploy/nginx/api.conf /etc/nginx/sites-available/api
+sudo ln -s /etc/nginx/sites-available/api /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Two things in that file are load-bearing and are explained in its comments — don't
+"simplify" them away: the `:80 → :443` redirect returns **308** (a 301/302 turns a POST
+into a GET and the API answers `405`), and the PHP `location` includes `fastcgi_params`
+(without it Laravel sees no `REQUEST_URI`, routes everything to `/`, and returns `200`
+for every endpoint). TLS certificates are yours to obtain, e.g. with
+`sudo certbot --nginx -d api.example.com`.
+
+### 3. Create the runner → VPS SSH key (once)
+
+This is a **second, separate key**: step 1's key lets the VPS pull from GitHub; this one
+lets the GitHub Actions runner log into the VPS. Generate it on a trusted machine, not on
+the runner:
+
+```bash
+ssh-keygen -t ed25519 -f ./gh-deploy -C "github-actions@myproject" -N ""
+
+# Authorize the public half on the VPS
+ssh-copy-id -i ./gh-deploy.pub deploy@api.example.com
+
+# Pin the VPS host key — pass the same port the deploy will use
+ssh-keyscan -p 22 api.example.com
+```
+
+Keep `gh-deploy` (the private half, including the `-----BEGIN`/`-----END` lines) and the
+`ssh-keyscan` output for the next step.
+
+### 4. Configure GitHub secrets and variables
+
+The job runs in the `production` [GitHub Environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment),
+so you can attach required reviewers or a wait timer to it. Create it under
+**Settings → Environments → New environment → `production`**, then add the values below
+either at repository level (**Settings → Secrets and variables → Actions**) or scoped to
+that environment.
+
+| Name | Kind | Required | Example | Notes |
+|---|---|---|---|---|
+| `DEPLOY_ENABLED` | **variable** | yes | `true` | Master switch. Lives on the **Variables** tab, *not* Secrets — a secret of this name does nothing and the job silently skips. Not defaulted on, so merging the workflow changes nothing until you set it. |
+| `DEPLOY_HOST` | secret | yes | `api.example.com` | Must be spelled exactly as it was in the `ssh-keyscan` command — an entry for the IP does not match a hostname. |
+| `DEPLOY_USER` | secret | yes | `deploy` | The account whose `authorized_keys` you appended to in step 3. |
+| `DEPLOY_PORT` | secret | no | `2222` | Defaults to `22`. |
+| `DEPLOY_PATH` | secret | yes | `/var/www/my-project` | Either the repository root or the `apps/api` directory inside it — the workflow detects which and `cd`s accordingly. |
+| `DEPLOY_SSH_KEY` | secret | yes | contents of `gh-deploy` | The **private** half from step 3, whole file including header/footer lines. |
+| `DEPLOY_KNOWN_HOSTS` | secret | recommended | output of `ssh-keyscan -p <port> <host>` | Pins the host key. Without it the job falls back to `ssh-keyscan` on the runner, which trusts whatever answers first — it warns and continues. |
+
+Delete the local `gh-deploy` private key once it's pasted into the secret.
+
+### 5. First deploy
+
+`workflow_run` triggers only fire for the copy of a workflow that exists on the **default
+branch**, so nothing runs automatically until `backend-deploy.yml` is merged into `main`.
+For a first, supervised run use **Actions → Deploy API → Run workflow** — that path is
+allowed by `workflow_dispatch` and deploys whichever ref you pick.
+
+From then on, every push to `main` whose CI run goes green deploys automatically. Deploys
+never run concurrently and a running deploy is never cancelled — interrupting migrations
+is worse than queuing.
+
+### What each run does on the server
+
+In order, from the workflow's remote script:
+
+1. `git fetch --prune origin` then `git reset --hard <sha>` — the exact commit CI
+   validated, not whatever `main` happens to be by then.
+2. `php artisan down --retry=15` — maintenance mode, armed with a trap that lifts it again
+   even if a later step fails, so a broken deploy never leaves the site down.
+3. `composer install --no-dev --optimize-autoloader`
+4. `php artisan migrate --force`
+5. `php artisan config:cache`, `route:cache`, `view:cache` — rebuilt, not just cleared.
+6. `php artisan queue:restart` — running workers exit after their current job and pick up
+   the new code.
+7. `php artisan up` (via the trap).
+
+Because step 5 caches config, **an `.env` edit on the server is not live until the config
+cache is rebuilt** — either re-run the deploy or run `php artisan config:cache` by hand.
+
+### Backend deployment checklist
+
+```
+[ ] Server has a clone of the repository at DEPLOY_PATH, pullable non-interactively
+[ ] apps/api/.env exists on the server with APP_KEY set (APP_ENV=production, APP_DEBUG=false)
+[ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
+[ ] deploy/nginx/api.conf installed, placeholders filled, `nginx -t` passes
+[ ] Runner → VPS key added to the deploy user's authorized_keys
+[ ] DEPLOY_ENABLED set to "true" on the Variables tab (not Secrets)
+[ ] DEPLOY_HOST / USER / PATH / SSH_KEY secrets set; KNOWN_HOSTS generated with the same port
+[ ] production environment exists (required for the job to resolve its secrets)
+[ ] backend-deploy.yml merged to main, first run triggered manually
+```
+
+### Deploy troubleshooting
+
+- **The job is grey / "skipped".** `DEPLOY_ENABLED` isn't `true`, was added as a secret
+  instead of a variable, or the CI run it was waiting on didn't conclude `success`.
+- **`known_hosts has no entry matching the host and port…`** The workflow checks its own
+  pin before connecting, because the raw failure is the five unhelpful words "Host key
+  verification failed". Regenerate on a trusted machine with the **same port**
+  (`ssh-keyscan -p <DEPLOY_PORT> <DEPLOY_HOST>`) and the **same host spelling** as the
+  `DEPLOY_HOST` secret. OpenSSH stores a non-default port as `[host]:port`, so a portless
+  keyscan will not match a connection to `2222`.
+- **`Permission denied (publickey)`.** The public half of `DEPLOY_SSH_KEY` isn't in the
+  deploy user's `~/.ssh/authorized_keys`, or the secret is missing its BEGIN/END lines.
+- **`No artisan found at …`.** `DEPLOY_PATH` points somewhere that is neither the
+  repository root nor `apps/api`.
+- **`git fetch` fails on the server.** The deploy key from step 1 was removed, or the
+  clone uses an HTTPS remote that now needs credentials. Fix with
+  `git remote set-url origin git@github.com:<username>/<repository>.git`.
+- **Deploy is green but the API serves old behaviour.** Config/route caches are rebuilt
+  from the files on disk — check you edited `.env` on the server and not only locally.
+- **Migrations failed midway.** The trap has already lifted maintenance mode, so the site
+  is up on a half-applied schema. Fix forward with a new commit; don't roll back by hand
+  while traffic is flowing.
 
 ---
 
 ## Deploy the Next.js frontend to Vercel
 
-This repository is a monorepo. You import the **whole repository** into Vercel but configure it to deploy only `apps/web`. The Laravel API continues to run on its own server (VPS, managed host, etc.).
+This repository is a monorepo. You import the **whole repository** into Vercel but configure it to deploy only `apps/web`. The Laravel API continues to run on its own server — deployed by [`backend-deploy.yml`](#deploy-the-laravel-api-to-a-vps), not by Vercel.
 
 ```
 GitHub repository
@@ -226,7 +409,7 @@ git init
 |---|---|
 | **Framework Preset** | `Next.js` |
 | **Root Directory** | `apps/web` |
-| **Node.js Version** | `20.x` or newer |
+| **Node.js Version** | `22.x` — CI builds on Node 22, so matching it here means a green CI build compiles on Vercel too (20.x is the supported floor) |
 | **Install Command** | *(leave as automatic)* |
 | **Build Command** | `cd ../.. && npx turbo run build --filter=web` |
 | **Output Directory** | *(framework default / `.next`)* |
@@ -320,7 +503,7 @@ The output should show the `web` workspace running `next build`. A green local b
 [ ] GitHub repository pushed and connected to Vercel
 [ ] Root Directory = apps/web  (not "web" or "/apps/web")
 [ ] Framework = Next.js
-[ ] Node.js >= 20
+[ ] Node.js 22.x on Vercel (matches CI; 20 is the floor)
 [ ] Build command uses Turbo  (cd ../.. && npx turbo run build --filter=web)
 [ ] NEXT_PUBLIC_API_BASE_URL points to production Laravel API (includes /api/v1)
 [ ] API_PROXY_TARGET points to API origin (no path)
@@ -329,6 +512,50 @@ The output should show the `web` workspace running `next build`. A green local b
 [ ] Laravel config cache refreshed after .env changes
 [ ] Local build passes (npx turbo run build --filter=web)
 ```
+
+---
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`. A newer
+push to the same branch cancels the in-flight run. Three jobs, all required to be green
+before `backend-deploy.yml` will deploy anything:
+
+| Job | Runs in | Steps |
+|---|---|---|
+| **API — Laravel tests** | `apps/api` | `composer install` → `php artisan test` → `composer check-platform-reqs` → `composer audit` |
+| **API — Pint** | `apps/api` | `./vendor/bin/pint --test` — reports formatting drift, never rewrites files |
+| **Web — types, build, lint** | `apps/web` | `npm ci` (from the repo root) → `npx tsc --noEmit` → `npm run lint` → `npm run build` → `npm audit --audit-level=critical` |
+
+Reproduce all of it locally before pushing:
+
+```bash
+npm install
+npm run -w apps/web typecheck
+npm run -w apps/web lint
+npm run -w apps/web build
+
+cd apps/api
+composer install
+php artisan test
+./vendor/bin/pint --test        # add --dirty to fix only what you changed, without --test to write
+```
+
+Why the workflow looks the way it does:
+
+- **PHP 8.2, not the newest.** 8.2 is the floor declared in `composer.json`, and
+  `config.platform.php` pins lockfile resolution to it. `composer check-platform-reqs`
+  is what stops a `composer update` run on a newer machine from silently pulling packages
+  that cannot install on the floor.
+- **Node 22.** It matches the Vercel production runtime, so a green build here means the
+  Vercel build compiles too. `npm ci` runs from the repository root because npm workspaces
+  keeps a single lockfile there — running it inside `apps/web` finds no lockfile.
+- **No `.env` is written for the tests.** `phpunit.xml` already pins the test environment
+  (SQLite in-memory, array cache/session); `APP_KEY` is generated as a throwaway env var
+  per run so no key lives in the repository.
+- **Audit strictness differs on purpose.** `composer audit` fails on any known advisory;
+  `npm audit` only on **critical**, so that high advisories gated behind a semver-major
+  upgrade don't leave CI permanently red and universally ignored.
 
 ---
 

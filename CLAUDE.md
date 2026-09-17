@@ -29,11 +29,27 @@ You (the agent) are working on a **reusable Laravel + Next.js monorepo starter**
 4. If it touches the setup flow, make it idempotent. `npm run setup` must be safe to re-run.
 5. If it prompts something, also support a non-interactive flag (`--my-option=...` + `--non-interactive`).
 
-## CI
+## CI and deploy
 
-- `.github/workflows/ci.yml` runs web lint/typecheck/build, api phpunit, and a setup-script smoke.
-- PHP 8.2 is the floor. Write code that works there.
-- The Laravel test runner is PHPUnit 11; phpunit.xml uses `DB_CONNECTION=sqlite` in-memory.
+`.github/workflows/ci.yml` — pull requests and pushes to `main`. Three jobs:
+
+| Job | Runs in | Steps |
+|---|---|---|
+| `api` | `apps/api` | `composer install` → `php artisan test` → `composer check-platform-reqs` → `composer audit` |
+| `style` | `apps/api` | `./vendor/bin/pint --test` |
+| `web` | `apps/web` | root `npm ci` → `npx tsc --noEmit` → `npm run lint` → `npm run build` → `npm audit --audit-level=critical` |
+
+- There is **no** setup-script smoke job in CI. `npm run setup` is exercised by hand (see the smoke test below), so setup regressions do not show up as a red build — be extra careful when touching `scripts/`.
+- PHP 8.2 is the floor. Write code that works there; `composer.json` pins `config.platform.php` to 8.2 and `check-platform-reqs` enforces it.
+- The Laravel test runner is PHPUnit 11; phpunit.xml uses `DB_CONNECTION=sqlite` in-memory. CI writes no `.env` — `APP_KEY` is a throwaway env var per run.
+- Web builds on Node 22 (matches the Vercel runtime). `npm ci` must run from the repo root — npm workspaces keeps the only lockfile there.
+- Run `./vendor/bin/pint` before pushing API changes, or the `style` job fails on formatting alone.
+
+`.github/workflows/backend-deploy.yml` — deploys `apps/api` to a VPS over SSH after CI goes green on `main`, gated behind the `DEPLOY_ENABLED` repository **variable** (not a secret). It `git reset --hard`s an existing clone on the server, then runs `composer install --no-dev`, `migrate --force`, the `config`/`route`/`view` caches, and `queue:restart`. It never writes `.env` and never provisions the box.
+
+- Changing the remote deploy steps means updating **"What each run does on the server"** in `README.md` too — that list is the documented contract.
+- New required secrets/variables go in the README's secrets table *and* the backend deployment checklist.
+- `deploy/nginx/api.conf` is the reference vhost. The 308 redirect and the `include fastcgi_params;` line are load-bearing; both failure modes are documented in the file's comments.
 
 ## Things to avoid
 
@@ -63,9 +79,9 @@ You (the agent) are working on a **reusable Laravel + Next.js monorepo starter**
 
 ```bash
 npm install
-npm run setup --non-interactive --mode=local --auth-mode=bearer
+node scripts/setup.mjs --non-interactive --mode=local --auth-mode=bearer   # npm run setup would eat the flags
 npm run -w apps/web lint && npm run -w apps/web typecheck && npm run -w apps/web build
 cd apps/api && php artisan test
 ```
 
-All must pass. CI enforces the same matrix.
+All must pass. CI enforces everything here except the setup-script line — that one is on you.
