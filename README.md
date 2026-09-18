@@ -545,6 +545,32 @@ sudo certbot certonly --webroot \
 sudo rm /etc/nginx/sites-enabled/acme-bootstrap
 ```
 
+**Prove it with `--dry-run` first.** Let's Encrypt rate-limits *failed* validations (5 per
+hostname per hour), and a misconfigured webroot burns them fast. The dry run uses staging,
+is effectively unlimited, and exercises the identical path:
+
+```bash
+sudo certbot certonly --webroot -w /var/www/YOUR_PROJECT/apps/api/public \
+  -d api.example.com --dry-run
+```
+
+Only drop `--dry-run` once it succeeds.
+
+**If this box already hosts other sites**, an existing vhost may answer for your new hostname
+before the bootstrap one does — typically a catch-all that redirects everything to HTTPS.
+Check what is enabled and which server block wins before issuing:
+
+```bash
+ls -l /etc/nginx/sites-enabled/
+sudo nginx -T | grep -nE 'server_name|listen |return 30|root '
+
+echo hello | sudo tee /var/www/YOUR_PROJECT/apps/api/public/.well-known/acme-challenge/test123
+curl -sSIL http://api.example.com/.well-known/acme-challenge/test123 | grep -E 'HTTP/|Location'
+```
+
+A single `HTTP/1.1 200` means the challenge path is reachable. Anything else — a redirect
+chain ending in 404, or a 403 — will fail validation in exactly the same way.
+
 `certonly --webroot` rather than `--nginx` on purpose: the `--nginx` plugin edits your vhost
 in place, which would fight the whole point of keeping `api.conf` committed and reviewable.
 `certonly` only writes certificates and leaves nginx configuration alone.
@@ -704,10 +730,37 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
 - **`nginx: [emerg] cannot load certificate`.** The vhost was installed before a certificate
   existed. Do [2c](#2c-get-the-certificate) first; nginx refuses the entire config until the
   files are there, so nothing is served in the meantime.
-- **certbot reports `Challenge failed` / `Invalid response … 404`.** One of three things:
-  the hostname does not resolve to this server (`dig +short api.example.com`), port 80 is
-  closed, or `-w` pointed somewhere nginx does not serve. The webroot must be the directory
-  the vhost's `root` names — `apps/api/public`.
+- **certbot reports `Challenge failed` / `Invalid response … 404`.** Read the URL in the
+  error first — it tells you most of what you need:
+  - It names your server's IP, so **DNS is fine**; that is not the problem.
+  - If it starts with **`https://`**, something already redirected port 80 to 443. The
+    bootstrap vhost in 2c never redirects, so a *different* server block answered — usually a
+    pre-existing catch-all on a box that already hosts other sites. Check
+    `ls -l /etc/nginx/sites-enabled/` (is the bootstrap enabled? was nginx reloaded?) and
+    `sudo nginx -T` to see which block matches. Adding `default_server` to the bootstrap's
+    `listen 80` line makes it win for the duration of issuance.
+  - If it starts with `http://`, the webroot is wrong: `-w` must be the directory the vhost's
+    `root` names (`apps/api/public`), and a literal `YOUR_PROJECT` left in the path is the
+    usual culprit.
+
+  Iterate with `--dry-run` so failures don't consume the 5-per-hour limit. If untangling the
+  vhosts is not worth it, issue the first certificate without nginx at all:
+
+  ```bash
+  sudo systemctl stop nginx
+  sudo certbot certonly --standalone -d api.example.com --agree-tos -m you@example.com --no-eff-email
+  sudo systemctl start nginx
+  ```
+
+  That records `standalone` as the renewal method, which then fails because nginx holds port
+  80 — so once the real vhost is live, point renewal back at the webroot and prove it:
+
+  ```bash
+  sudoedit /etc/letsencrypt/renewal/api.example.com.conf
+  #   authenticator = webroot
+  #   webroot_path = /var/www/YOUR_PROJECT/apps/api/public,
+  sudo certbot renew --dry-run
+  ```
 - **The certificate expired.** Renewal has been failing for weeks; nothing tells you until
   browsers do. Run `sudo certbot renew --dry-run` and check port 80 is still open — closing
   it after switching to HTTPS is the usual cause.
