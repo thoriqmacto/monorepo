@@ -886,6 +886,13 @@ API_PROXY_TARGET=https://api.example.com
 | `NEXT_PUBLIC_AUTH_MODE` | `bearer` for the default Sanctum token flow. |
 | `API_PROXY_TARGET` | Laravel API origin — **no path, no `/api/v1`**. Example: `https://api.example.com`. |
 
+> **`NEXT_PUBLIC_API_BASE_URL` also drives the Content-Security-Policy.** `next.config.ts`
+> reads it at **build time** and adds its origin to `connect-src`, because the browser blocks
+> any request to an origin that header doesn't list. Two consequences: the value must be set
+> *before* the build that serves it, and changing it later needs a **redeploy**, not just an
+> env-var edit. A stale build shows `blocked:csp` in the network tab with nothing reaching
+> the API at all.
+
 > **Warning:** Do not leave `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1` in production. Inside a Vercel deployment, `localhost` refers to the Vercel runtime itself — not your VPS. The API will be unreachable and every authenticated request will fail.
 
 ### 4. Configure Laravel for the Vercel frontend
@@ -944,6 +951,7 @@ The output should show the `web` workspace running `next build`. A green local b
 [ ] NEXT_PUBLIC_API_BASE_URL points to production Laravel API (includes /api/v1)
 [ ] API_PROXY_TARGET points to API origin (no path)
 [ ] NEXT_PUBLIC_API_BASE_URL does NOT contain localhost
+[ ] Site's Content-Security-Policy connect-src lists the API origin (rebuild after changing it)
 [ ] Laravel CORS_ALLOWED_ORIGINS includes the Vercel/frontend domain
 [ ] Laravel config cache refreshed after .env changes
 [ ] Local build passes (npx turbo run build --filter=web)
@@ -1230,6 +1238,19 @@ See `apps/web/.env.local.example`.
 
 ### App
 
+- **Requests show `blocked:csp` in the network tab, and nothing reaches the API.** Content-
+  Security-Policy, not CORS — the browser refused to *send* the request, so the backend never
+  saw it and its logs stay empty. `next.config.ts` builds `connect-src` from
+  `NEXT_PUBLIC_API_BASE_URL`, so this means the deployed build was made with a different value
+  (or none). Check the header the site actually serves:
+  ```bash
+  curl -sI https://your-app.vercel.app | grep -i content-security-policy
+  ```
+  `connect-src` must list your API origin. If it only says `'self'`, set
+  `NEXT_PUBLIC_API_BASE_URL` in the Vercel project and **redeploy** — the value is inlined at
+  build time, so an env-var change alone does nothing. Alternatively, point the app at the
+  same-origin proxy instead, which needs no CSP entry: set `NEXT_PUBLIC_API_BASE_URL=/api/v1`
+  and `API_PROXY_TARGET=https://api.example.com`.
 - **CORS errors in the browser.** Make sure your web origin is listed in `CORS_ALLOWED_ORIGINS` on the API. Re-run `npm run setup` and restart `php artisan serve`. If it *is* listed and still fails, compare it character for character with the `Origin` header in the browser's network tab: the match is literal, so a missing `https://`, a trailing slash, or a missing `:port` all block every request. On a server, also confirm the change is live — `php artisan config:cache` after editing `.env`.
 - **`401` on `/me` right after login.** You're probably in SPA-cookie mode without `CORS_SUPPORTS_CREDENTIALS=true` or with a missing `SANCTUM_STATEFUL_DOMAINS` entry. Or, in bearer mode, localStorage was cleared. Switch back to bearer (the default) with `npm run setup:env`.
 - **`/dashboard` redirects to `/login`.** Middleware relies on the `auth_hint` cookie set at login time. If you cleared cookies, sign in again.
