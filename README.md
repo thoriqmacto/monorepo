@@ -14,17 +14,52 @@ After setup you get a working baseline:
 2. `/register` and `/login` auth flow
 3. `/dashboard` authenticated page that talks to the Laravel API
 
-Deploying it:
+---
 
-| What | Goes where | Guide |
+## Which guide do I follow?
+
+| I want to… | Go to |
+|---|---|
+| Run the whole thing on my own machine | [Fresh install — everything local](#fresh-install--everything-local) |
+| Work on the frontend against an API that is **already running** somewhere | [Fresh install — frontend only](#fresh-install--frontend-only) |
+| Put the **API** on my own server | [Deploy the Laravel API to a VPS](#deploy-the-laravel-api-to-a-vps) |
+| Put the **frontend** on Vercel | [Deploy the Next.js frontend to Vercel](#deploy-the-nextjs-frontend-to-vercel) |
+| Understand what runs on every push | [Continuous integration](#continuous-integration) |
+
+### `npm run setup` is not a deployment step
+
+This trips people up, so it's worth stating plainly.
+
+`npm run setup` configures **one checkout on one machine**. Its "Where will the API run?"
+question does not choose where you deploy — it only answers *which API URL this checkout
+should talk to*, so it can write the right `.env` values:
+
+| Answer | Means | Typical machine |
 |---|---|---|
-| `apps/api` | your own VPS, pushed by GitHub Actions over SSH (`.github/workflows/backend-deploy.yml`) | [Deploy the Laravel API to a VPS](#deploy-the-laravel-api-to-a-vps) |
-| `apps/web` | Vercel, built from the monorepo root | [Deploy the Next.js frontend to Vercel](#deploy-the-nextjs-frontend-to-vercel) |
-| both | the checks that gate every push (`.github/workflows/ci.yml`) | [Continuous integration](#continuous-integration) |
+| **Local machine** | the API runs right here, at `http://localhost:<port>` | your laptop, full-stack dev |
+| **Remote backend** | the API lives at some other URL | your laptop (frontend-only dev) — **and the server itself**, where that URL is the API's own public address |
+
+So you run `npm run setup` on **every** machine that holds a checkout, answering
+differently on each. Setting up a VPS is a separate job on top of that: installing a web
+server, TLS, a database and the deploy pipeline. "Remote backend" mode does not deploy
+anything anywhere.
+
+```
+ your laptop                your VPS                       Vercel
+┌──────────────────────┐   ┌──────────────────────────┐   ┌────────────────────────┐
+│ checkout             │   │ checkout                 │   │ builds apps/web        │
+│ npm run setup        │   │ npm run setup            │   │ from GitHub            │
+│   mode: local        │   │   mode: remote           │   │ env vars set in        │
+│   (or remote)        │   │   api-url: its own URL   │   │ the Vercel dashboard   │
+│ runs web + api       │   │ + nginx, TLS, database   │   │                        │
+└──────────────────────┘   └──────────────────────────┘   └────────────────────────┘
+                                 ▲
+                       both frontends call this one API
+```
 
 ---
 
-## Fresh install — local mode
+## Fresh install — everything local
 
 The API runs on your machine. Requires **Node ≥ 20**, **PHP ≥ 8.2**, **Composer**.
 
@@ -79,9 +114,15 @@ password password
 
 ---
 
-## Fresh install — remote mode
+## Fresh install — frontend only
 
-The API is hosted elsewhere; only the Next.js frontend runs locally.
+**For your development machine, when the API is already running somewhere else.** Only the
+Next.js frontend runs locally; no database or PHP work happens here.
+
+> If that API does not exist yet, this is not the section you want — stand the backend up
+> first with [Deploy the Laravel API to a VPS](#deploy-the-laravel-api-to-a-vps), then come
+> back here and point this checkout at it. Running this section against a URL that isn't
+> serving anything gets you a frontend that loads and fails every request.
 
 ```bash
 # 1. Clone into the name you want
@@ -113,7 +154,11 @@ When prompted:
 | **Frontend origin** | `https://app.example.com` (for CORS) |
 | **Auth mode** | `bearer` (default) |
 
-Laravel bootstrap (migrate, key:generate) is skipped in remote mode — run those on the remote host.
+Setup still runs `composer install` and Laravel's `key:generate` / `migrate` here, against
+whatever `DB_CONNECTION` the local `.env` names — only the SQLite file creation, the demo
+seed and the ping smoke test are skipped. On a frontend-only machine that local database is
+unused; the data your app reads lives on the remote API. Pass `--skip-migrate` if you'd
+rather it not run at all.
 
 ---
 
@@ -268,10 +313,16 @@ automatic afterwards.
 The deploy works by running `git fetch` + `git reset --hard <sha>` inside an existing
 clone, so the server needs a real, working checkout before the first deploy.
 
+> **Already cloned the repo on this box and run `npm run setup` there?** Then most of this
+> step is done. Skip to [1c](#1c-production-only-env-values) to apply the handful of values
+> setup deliberately leaves alone, then carry on to step 2.
+
+#### 1a. Packages and pull access
+
 ```bash
 # On the VPS, as the user the deploy will log in as (e.g. "deploy")
 sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl php8.2-sqlite3 \
-                    php8.2-bcmath php8.2-intl composer nginx git
+                    php8.2-bcmath php8.2-intl composer nginx git nodejs npm
 
 # Give the server read-only pull access to the repository
 ssh-keygen -t ed25519 -C "deploy@myserver"
@@ -283,23 +334,86 @@ key**, leaving "Allow write access" unchecked. A deploy key is scoped to this on
 repository; adding the server key to your personal account instead would give the box
 access to everything you can push to.
 
-Verify and clone:
-
 ```bash
 ssh -T git@github.com     # type "yes" at the host-key prompt; must succeed non-interactively later
 cd /var/www
 git clone git@github.com:<username>/<repository>.git my-project
-cd my-project/apps/api
+cd my-project
+```
 
-cp .env.example .env
-# Edit .env: APP_ENV=production, APP_DEBUG=false, APP_URL, FRONTEND_URL,
-# CORS_ALLOWED_ORIGINS, DB_*, MAIL_*  — see "Environment reference" below.
+#### 1b. Run the same setup script you run anywhere else
 
-composer install --no-dev --optimize-autoloader
-php artisan key:generate
+There is no separate server install procedure. `npm run setup` writes the env files,
+installs dependencies and bootstraps Laravel here exactly as it does on a laptop — you just
+answer the API-URL question with **this server's own public URL**:
+
+```bash
+npm install
+npm run setup
+```
+
+| Prompt | Answer on the server |
+|---|---|
+| **Project name** | your app's name |
+| **Where will the API run?** | **Remote backend** — counter-intuitive on the machine running the API, but it is the answer that writes a real public `APP_URL` instead of `http://localhost:8000` |
+| **Backend API origin** | `https://api.example.com` — this box's public API URL, no path |
+| **Frontend origin** | `https://app.example.com` (or your `*.vercel.app` URL) — becomes `CORS_ALLOWED_ORIGINS` |
+| **Auth mode** | `bearer` (default) |
+
+Or non-interactively:
+
+```bash
+node scripts/setup.mjs --non-interactive \
+  --project-name="My App" \
+  --mode=remote \
+  --api-url=https://api.example.com \
+  --frontend-origin=https://app.example.com
+```
+
+That writes `apps/api/.env` with `APP_URL`, `CORS_ALLOWED_ORIGINS` and `FRONTEND_URL`
+already correct, runs `composer install`, generates `APP_KEY` if it is empty, runs
+`migrate` and `storage:link`.
+
+Two things it does *not* do here, both harmless and both handled below: it installs dev
+dependencies (the first deploy replaces them with `composer install --no-dev`), and in
+remote mode it does not create the SQLite file.
+
+#### 1c. Production-only env values
+
+Setup leaves these alone — it has no way to know a checkout is a production box, and
+guessing would be worse than leaving them:
+
+```bash
+cd apps/api
+nano .env
+```
+
+```env
+APP_ENV=production     # setup leaves this at "local"
+APP_DEBUG=false        # setup leaves this at "true" — stack traces would be public
+DB_CONNECTION=mysql    # only if you are not staying on SQLite
+DB_DATABASE=…          # plus DB_HOST / DB_USERNAME / DB_PASSWORD
+```
+
+Then create the database and migrate into it. **Staying on SQLite?** Remote mode skips the
+file, so create it yourself — `migrate` against a missing SQLite file is exactly the kind of
+failure that looks like a broken app later:
+
+```bash
+# SQLite only
+touch database/database.sqlite
+
+# either way
 php artisan migrate --force
-php artisan storage:link
+```
 
+These edits are safe: `npm run setup` preserves every existing value in `.env` and only
+rewrites the keys it manages, so re-running it later will not flip `APP_ENV` back to
+`local`. (It also drops a `.env.bak` beside the file each time.)
+
+#### 1d. Permissions
+
+```bash
 # Laravel must be able to write these; the deploy's `artisan down` needs it too
 sudo chown -R $USER:www-data storage bootstrap/cache
 sudo chmod -R ug+rwX storage bootstrap/cache
@@ -402,7 +516,9 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
 
 ```
 [ ] Server has a clone of the repository at DEPLOY_PATH, pullable non-interactively
-[ ] apps/api/.env exists on the server with APP_KEY set (APP_ENV=production, APP_DEBUG=false)
+[ ] npm run setup has been run there (mode=remote, api-url = this box's public URL)
+[ ] apps/api/.env has APP_KEY set, plus the values setup leaves alone:
+    APP_ENV=production, APP_DEBUG=false, and DB_* if not staying on SQLite
 [ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
 [ ] deploy/nginx/api.conf installed, placeholders filled, `nginx -t` passes
 [ ] Runner → VPS key added to the deploy user's authorized_keys
@@ -620,7 +736,7 @@ Why the workflow looks the way it does:
 ## Non-interactive install
 
 ```bash
-# Local
+# Everything local — API served from this machine
 node scripts/setup.mjs \
   --non-interactive \
   --project-name="My App" \
@@ -629,7 +745,9 @@ node scripts/setup.mjs \
   --port=8000 \
   --seed
 
-# Remote
+# API lives at another URL. Two different machines use this same form:
+#   • a dev machine running the frontend only  → --api-url is the remote API
+#   • the API server itself                    → --api-url is its own public URL
 node scripts/setup.mjs \
   --non-interactive \
   --project-name="My App" \
@@ -637,6 +755,9 @@ node scripts/setup.mjs \
   --api-url=https://api.example.com \
   --frontend-origin=https://app.example.com
 ```
+
+On a server, follow this with the production-only values setup leaves alone —
+see [1c](#1c-production-only-env-values).
 
 ---
 
@@ -666,23 +787,24 @@ NEXT_PUBLIC_APP_NAME=New Name
 
 ---
 
-## Setup modes
+## Setup modes — what each one actually does
 
-### Local mode (default)
+Both modes write `apps/api/.env` + `apps/web/.env.local`, run `npm install` and
+`composer install`, generate `APP_KEY` when it is empty, and run `migrate` and
+`storage:link`. The mode changes only the URLs written and three local-only extras:
 
-```bash
-npm run setup           # pick "Local machine"
-```
+| | Local mode | Remote mode |
+|---|---|---|
+| `APP_URL` / `API_PROXY_TARGET` | `http://localhost:<port>` (or the Herd `.test` host) | the origin you supply |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:<port>/api/v1` | `<your origin>/api/v1` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | the frontend origin you supply |
+| Creates `database/database.sqlite` | yes | no |
+| Offers to seed the demo user | yes | no |
+| Pings `/api/ping` afterwards | yes | no |
 
-Setup writes `apps/api/.env` and `apps/web/.env.local`, runs `composer install`, creates `apps/api/database/database.sqlite`, runs `php artisan key:generate` and `php artisan migrate`.
-
-### Remote mode
-
-```bash
-npm run setup           # pick "Remote backend"
-```
-
-Setup writes env files and installs Node dependencies. Laravel bootstrap is skipped.
+Neither mode writes `APP_ENV`, `APP_DEBUG` or `DB_*` — those keep whatever the file (or
+`.env.example`) already had, which is why a production box needs the
+[1c](#1c-production-only-env-values) pass.
 
 ---
 
