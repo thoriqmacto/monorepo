@@ -165,6 +165,29 @@ have to match. Mixing them is the most common way to get stuck here:
 An SSH key you just verified does **nothing** for an `https://` remote. Git will prompt for
 a username and password and GitHub will reject it.
 
+The SSH form is not a URL with slashes — it is `git@github.com:` followed **immediately** by
+`owner/repo.git`. One colon, no `//`, and the host appears exactly once:
+
+```
+git@github.com:your-name/your-repo.git
+└─── host ───┘│└ owner ┘ └── repo ───┘
+              └ colon, then straight into the path
+```
+
+Editing an `https://` URL into the SSH form by hand is where this usually goes wrong:
+
+```bash
+# ✗ host left in twice — Git reads the "://" and reports
+#   fatal: protocol 'git@github.com' is not supported
+git@github.com://github.com/<username>/<repository>.git
+
+# ✗ slashes after the host instead of a colon — Git will ask for a password
+git@github.com/<username>/<repository>.git
+
+# ✓
+git@github.com:<username>/<repository>.git
+```
+
 ### Push your project (SSH — recommended)
 
 ```bash
@@ -808,6 +831,13 @@ See `apps/web/.env.local.example`.
   public key in `~/.ssh/id_ed25519.pub` was never added under
   **GitHub → Settings → SSH and GPG keys**, or you generated it as a different user than the
   one running `git` (on a server, `sudo`/`su` changes which `~/.ssh` is read).
+- **`fatal: protocol 'git@github.com' is not supported`.** The remote URL has `://` in it,
+  usually from editing an `https://` URL into the SSH form and leaving the old host behind
+  (`git@github.com://github.com/<username>/<repository>.git`). Check with `git remote -v`
+  and set the plain SCP form — one colon, no slashes after the host:
+  ```bash
+  git remote set-url origin git@github.com:<username>/<repository>.git
+  ```
 - **`remote origin already exists`.** `git remote add` only creates; it never updates. Use
   `git remote set-url origin <url>`.
 - **`src refspec main does not match any`.** You haven't committed yet, or the branch is
