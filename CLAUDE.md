@@ -50,6 +50,7 @@ You (the agent) are working on a **reusable Laravel + Next.js monorepo starter**
 - Changing the remote deploy steps means updating **"What each run does on the server"** in `README.md` too — that list is the documented contract.
 - New required secrets/variables go in the README's secrets table *and* the backend deployment checklist.
 - `deploy/nginx/api.conf` is the reference vhost. The 308 redirect and the `include fastcgi_params;` line are load-bearing; both failure modes are documented in the file's comments.
+- **`npm run setup` is the documented server install path**, not just a laptop tool: the VPS guide runs it with `--mode=remote --api-url=<the box's own public URL>`. A mode is about *which API URL this checkout talks to*, never about where anything deploys — keep that distinction intact in both the script and the docs. If you change what a mode writes or bootstraps, update README §1b/1c and the "Setup modes — what each one actually does" table, which are written from verified behaviour: remote mode runs `key:generate`, `migrate` and `storage:link` (it skips only the SQLite file, the seed and the ping), and no mode writes `APP_ENV`, `APP_DEBUG` or `DB_*`.
 
 ## Things to avoid
 
