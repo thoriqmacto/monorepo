@@ -478,26 +478,127 @@ sudo chmod -R ug+rwX storage bootstrap/cache
 means **the workflow cannot create it** — a missing `.env` on the server is a failed
 deploy, not a self-healing one.
 
-### 2. Install the nginx vhost (once)
+### 2. DNS, TLS and the nginx vhost (once)
 
-`deploy/nginx/api.conf` is the reference vhost, committed so it is reviewable instead of
-hand-edited on the box. Copy it and fill in the four placeholders it lists at the top:
-`server_name` (both blocks), the `ssl_certificate` / `ssl_certificate_key` paths, the
-`root` path (replace `YOUR_PROJECT` with your cloned directory name), and the PHP-FPM
-socket if you are not on the packaged `php8.2-fpm`.
+**Order matters here.** `deploy/nginx/api.conf` listens on 443 and names certificate files,
+so installing it before those files exist makes `nginx -t` fail outright:
+
+```
+nginx: [emerg] cannot load certificate "/etc/letsencrypt/live/api.example.com/fullchain.pem"
+```
+
+So: DNS first, then a certificate, then the real vhost.
+
+#### 2a. Point the domain at the server
+
+Create an **A record** for the API hostname pointing at the VPS's public IP (`AAAA` too if
+it has IPv6). Let's Encrypt validates by fetching a file over HTTP from the name you are
+asking about, so this has to resolve — and resolve to *this* box — before anything below
+works.
+
+```bash
+dig +short api.example.com     # must print this server's public IP
+```
+
+DNS changes can take minutes to hours to propagate. Waiting is cheaper than debugging a
+failed challenge.
+
+#### 2b. Open the firewall
+
+```bash
+sudo ufw allow 'Nginx Full'    # opens 80 and 443
+sudo ufw status
+```
+
+**Leave port 80 open permanently.** It is tempting to close it once everything redirects to
+HTTPS, but renewals are validated over HTTP — close 80 and certificates quietly stop
+renewing until they expire.
+
+#### 2c. Get the certificate
+
+Install certbot, then serve the ACME challenge from the app's own `public/` directory. A
+temporary HTTP-only vhost is needed because the real one cannot load yet:
+
+```bash
+sudo apt install -y certbot
+
+# Temporary: just enough to answer the challenge
+sudo tee /etc/nginx/sites-available/acme-bootstrap >/dev/null <<'CONF'
+server {
+    listen 80;
+    server_name api.example.com;
+    root /var/www/YOUR_PROJECT/apps/api/public;
+    location ^~ /.well-known/acme-challenge/ { allow all; }
+    location / { return 404; }
+}
+CONF
+sudo ln -s /etc/nginx/sites-available/acme-bootstrap /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# Issue the certificate
+sudo certbot certonly --webroot \
+  -w /var/www/YOUR_PROJECT/apps/api/public \
+  -d api.example.com \
+  --agree-tos -m you@example.com --no-eff-email
+
+# Done with the temporary vhost
+sudo rm /etc/nginx/sites-enabled/acme-bootstrap
+```
+
+`certonly --webroot` rather than `--nginx` on purpose: the `--nginx` plugin edits your vhost
+in place, which would fight the whole point of keeping `api.conf` committed and reviewable.
+`certonly` only writes certificates and leaves nginx configuration alone.
+
+Certificates land in `/etc/letsencrypt/live/api.example.com/` as `fullchain.pem` and
+`privkey.pem` — the two paths the vhost expects.
+
+#### 2d. Install the real vhost
+
+Copy it and fill in the placeholders listed at the top of the file: `server_name` (both
+blocks), the `ssl_certificate` / `ssl_certificate_key` paths, the `root` path (replace
+`YOUR_PROJECT` with your cloned directory name), and the PHP-FPM socket if you are not on
+the packaged `php8.2-fpm`.
 
 ```bash
 sudo cp deploy/nginx/api.conf /etc/nginx/sites-available/api
+sudo nano /etc/nginx/sites-available/api        # fill the placeholders
 sudo ln -s /etc/nginx/sites-available/api /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
+
+curl -i https://api.example.com/api/ping        # expect 200 and a JSON body
 ```
 
 Two things in that file are load-bearing and are explained in its comments — don't
 "simplify" them away: the `:80 → :443` redirect returns **308** (a 301/302 turns a POST
 into a GET and the API answers `405`), and the PHP `location` includes `fastcgi_params`
 (without it Laravel sees no `REQUEST_URI`, routes everything to `/`, and returns `200`
-for every endpoint). TLS certificates are yours to obtain, e.g. with
-`sudo certbot --nginx -d api.example.com`.
+for every endpoint).
+
+#### 2e. Confirm renewal works
+
+Certificates last 90 days. The certbot package installs a timer that renews them; what it
+cannot do is tell nginx to pick up the new file, so add a deploy hook:
+
+```bash
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh >/dev/null <<'CONF'
+#!/bin/sh
+systemctl reload nginx
+CONF
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+
+systemctl list-timers | grep certbot     # the timer exists and is scheduled
+sudo certbot renew --dry-run             # must succeed
+```
+
+The dry run is the only honest check — it exercises the real challenge path. It works
+through the live vhost because renewal reuses the webroot recorded in 2c
+(`apps/api/public`), the `:80` block's 308 redirect is followed by Let's Encrypt, and the
+vhost's dotfile rule deliberately excludes `/.well-known`. Break any of those three and
+renewal fails silently 60 days later.
+
+> **The frontend needs none of this.** Vercel provisions and renews TLS for your
+> `*.vercel.app` domain and any custom domain you add there. This section is only for the
+> API on your own server.
 
 ### 3. Create the runner → VPS SSH key (once)
 
@@ -578,7 +679,11 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
 [ ] CORS_ALLOWED_ORIGINS and FRONTEND_URL include the scheme (https://…), not a bare host
 [ ] DB driver extension installed (php8.2-mysql / -pgsql / -sqlite3); DB_* keys uncommented
 [ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
+[ ] DNS A record for the API hostname resolves to this server (dig +short)
+[ ] Ports 80 and 443 open — 80 stays open for renewals
+[ ] TLS certificate issued into /etc/letsencrypt/live/<host>/
 [ ] deploy/nginx/api.conf installed, placeholders filled, `nginx -t` passes
+[ ] certbot renew --dry-run succeeds and a deploy hook reloads nginx
 [ ] Runner → VPS key added to the deploy user's authorized_keys
 [ ] DEPLOY_ENABLED set to "true" on the Variables tab (not Secrets)
 [ ] DEPLOY_HOST / USER / PATH / SSH_KEY secrets set; KNOWN_HOSTS generated with the same port
@@ -596,6 +701,16 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
   (`ssh-keyscan -p <DEPLOY_PORT> <DEPLOY_HOST>`) and the **same host spelling** as the
   `DEPLOY_HOST` secret. OpenSSH stores a non-default port as `[host]:port`, so a portless
   keyscan will not match a connection to `2222`.
+- **`nginx: [emerg] cannot load certificate`.** The vhost was installed before a certificate
+  existed. Do [2c](#2c-get-the-certificate) first; nginx refuses the entire config until the
+  files are there, so nothing is served in the meantime.
+- **certbot reports `Challenge failed` / `Invalid response … 404`.** One of three things:
+  the hostname does not resolve to this server (`dig +short api.example.com`), port 80 is
+  closed, or `-w` pointed somewhere nginx does not serve. The webroot must be the directory
+  the vhost's `root` names — `apps/api/public`.
+- **The certificate expired.** Renewal has been failing for weeks; nothing tells you until
+  browsers do. Run `sudo certbot renew --dry-run` and check port 80 is still open — closing
+  it after switching to HTTPS is the usual cause.
 - **`Failed opening required '.../vendor/autoload.php'`** from any `php artisan` command.
   Dependencies were never installed on that box — `composer install` failed or never ran, and
   setup only warns about it. Nothing else will work until this does:
