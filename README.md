@@ -587,11 +587,20 @@ the packaged `php8.2-fpm`.
 
 ```bash
 sudo cp deploy/nginx/api.conf /etc/nginx/sites-available/api
-sudo nano /etc/nginx/sites-available/api        # fill the placeholders
+
+# Fill the placeholders. Every occurrence matters — the example hostname appears
+# in server_name AND in both certificate paths, so a missed one fails the config test.
+sudo sed -i 's/api\.example\.com/api.yourdomain.com/g; s#/var/www/YOUR_PROJECT#/var/www/my-project#g' \
+  /etc/nginx/sites-available/api
+
+# The socket must match the PHP-FPM actually installed (8.3 ships on newer Ubuntu)
+ls /run/php/*.sock
+grep fastcgi_pass /etc/nginx/sites-available/api
+
 sudo ln -s /etc/nginx/sites-available/api /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
-curl -i https://api.example.com/api/ping        # expect 200 and a JSON body
+curl -i https://api.yourdomain.com/api/ping     # expect 200 and a JSON body
 ```
 
 Two things in that file are load-bearing and are explained in its comments — don't
@@ -727,9 +736,19 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
   (`ssh-keyscan -p <DEPLOY_PORT> <DEPLOY_HOST>`) and the **same host spelling** as the
   `DEPLOY_HOST` secret. OpenSSH stores a non-default port as `[host]:port`, so a portless
   keyscan will not match a connection to `2222`.
-- **`nginx: [emerg] cannot load certificate`.** The vhost was installed before a certificate
-  existed. Do [2c](#2c-get-the-certificate) first; nginx refuses the entire config until the
-  files are there, so nothing is served in the meantime.
+- **`nginx: [emerg] cannot load certificate`.** Read the path in the message — it separates
+  the two causes:
+  - It names **`api.example.com`** (or any hostname that is not yours): the placeholders were
+    never filled in. The example hostname appears three times in `api.conf` — `server_name`
+    plus both certificate paths — so replace every occurrence, per [2d](#2d-install-the-real-vhost).
+  - It names **your real hostname**: the certificate genuinely is not there yet. Do
+    [2c](#2c-get-the-certificate) first.
+
+  Either way nginx refuses the entire configuration, so the old config keeps serving until
+  `nginx -t` passes — a failed reload is not an outage, it is a no-op.
+- **`502 Bad Gateway` from the API once TLS works.** nginx reached PHP-FPM's socket path and
+  found nothing there. Compare `fastcgi_pass` in the vhost with `ls /run/php/*.sock` — the
+  committed file assumes `php8.2-fpm.sock`, and newer Ubuntu releases ship 8.3.
 - **certbot reports `Challenge failed` / `Invalid response … 404`.** Read the URL in the
   error first — it tells you most of what you need:
   - It names your server's IP, so **DNS is fine**; that is not the problem.
