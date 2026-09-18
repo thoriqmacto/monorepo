@@ -59,6 +59,7 @@ You (the agent) are working on a **reusable Laravel + Next.js monorepo starter**
 - Don't add Next.js `rewrites()`. The same-origin proxy at `app/api/[...path]/route.ts` is the server-side path.
 - Don't couple dashboard/auth code to domain-specific models (users is fine; any app-specific resource is not).
 - Don't commit generated files from `bootstrap/cache/` or `storage/**/` — the nested `.gitignore` files there take care of that.
+- **Don't add Blade views or a `resources/views` directory to `apps/api`.** The API renders no views — Next.js owns every pixel. `config/view.php` sets `'paths' => []` to say so, which is also what keeps `view:cache` and `optimize` working without a views directory to scan. Mail still renders: the password-reset and verification notifications use the framework's `mail::` templates, resolved through package hints rather than these paths. If a view is genuinely needed, add the directory *and* the path back together.
 
 ## Where to put new code
 
