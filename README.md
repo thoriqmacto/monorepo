@@ -321,13 +321,22 @@ clone, so the server needs a real, working checkout before the first deploy.
 
 ```bash
 # On the VPS, as the user the deploy will log in as (e.g. "deploy")
-sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl php8.2-sqlite3 \
+sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl \
                     php8.2-bcmath php8.2-intl composer nginx git nodejs npm
+
+# Plus the driver for the database you intend to use — pick one:
+sudo apt install -y php8.2-sqlite3               # staying on SQLite
+sudo apt install -y php8.2-mysql mysql-server    # MySQL
+sudo apt install -y php8.2-pgsql postgresql      # PostgreSQL
+sudo systemctl restart php8.2-fpm                # required after adding an extension
 
 # Give the server read-only pull access to the repository
 ssh-keygen -t ed25519 -C "deploy@myserver"
 cat ~/.ssh/id_ed25519.pub
 ```
+
+PHP needs the driver extension for whichever database you choose. Without it Laravel fails
+with `could not find driver`, which never mentions PHP extensions.
 
 Add that public key to **GitHub → your repository → Settings → Deploy keys → Add deploy
 key**, leaving "Allow write access" unchecked. A deploy key is scoped to this one
@@ -400,19 +409,39 @@ nano .env
 ```env
 APP_ENV=production     # setup leaves this at "local"
 APP_DEBUG=false        # setup leaves this at "true" — stack traces would be public
-DB_CONNECTION=mysql    # only if you are not staying on SQLite
-DB_DATABASE=…          # plus DB_HOST / DB_USERNAME / DB_PASSWORD
 ```
 
-Then create the database and migrate into it. **Staying on SQLite?** Remote mode skips the
-file, so create it yourself — `migrate` against a missing SQLite file is exactly the kind of
-failure that looks like a broken app later:
+Then point it at a database. `.env.example` ships configured for SQLite, and — this is the
+part that bites — **`DB_HOST`, `DB_PORT`, `DB_USERNAME` and `DB_PASSWORD` ship commented
+out**. Switching `DB_CONNECTION` without uncommenting them leaves Laravel on its built-in
+defaults (`root`, empty password), producing an access-denied error that reads like wrong
+credentials when the real cause is four `#` characters.
+
+**Staying on SQLite** — remote mode does not create the file, and migrating against a
+missing one fails in a way that only surfaces later:
 
 ```bash
-# SQLite only
 touch database/database.sqlite
+php artisan migrate --force
+```
 
-# either way
+**Using MySQL or PostgreSQL** — create the database and a user for it, then set all six keys,
+uncommenting the four that ship commented:
+
+```env
+DB_CONNECTION=mysql
+DB_DATABASE=myapp
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USERNAME=myapp
+DB_PASSWORD=a-strong-password
+```
+
+Quote the value if the password contains spaces or `#` — `DB_PASSWORD="p@ss word#1"` — then
+migrate. Do not create `database/database.sqlite` in this case; a stray SQLite file next to a
+real database server is only ever a source of confusion:
+
+```bash
 php artisan migrate --force
 ```
 
@@ -547,6 +576,7 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
     APP_ENV=production, APP_DEBUG=false, and DB_* if not staying on SQLite
 [ ] apps/api/vendor/ exists and APP_KEY is set (setup skips both if composer install failed)
 [ ] CORS_ALLOWED_ORIGINS and FRONTEND_URL include the scheme (https://…), not a bare host
+[ ] DB driver extension installed (php8.2-mysql / -pgsql / -sqlite3); DB_* keys uncommented
 [ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
 [ ] deploy/nginx/api.conf installed, placeholders filled, `nginx -t` passes
 [ ] Runner → VPS key added to the deploy user's authorized_keys
