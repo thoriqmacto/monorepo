@@ -321,14 +321,14 @@ clone, so the server needs a real, working checkout before the first deploy.
 
 ```bash
 # On the VPS, as the user the deploy will log in as (e.g. "deploy")
-sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl \
-                    php8.2-bcmath php8.2-intl composer nginx git nodejs npm
+sudo apt install -y php8.3-fpm php8.3-mbstring php8.3-xml php8.3-curl \
+                    php8.3-bcmath php8.3-intl composer nginx git nodejs npm
 
 # Plus the driver for the database you intend to use — pick one:
-sudo apt install -y php8.2-sqlite3               # staying on SQLite
-sudo apt install -y php8.2-mysql mysql-server    # MySQL
-sudo apt install -y php8.2-pgsql postgresql      # PostgreSQL
-sudo systemctl restart php8.2-fpm                # required after adding an extension
+sudo apt install -y php8.3-sqlite3               # staying on SQLite
+sudo apt install -y php8.3-mysql mysql-server    # MySQL
+sudo apt install -y php8.3-pgsql postgresql      # PostgreSQL
+sudo systemctl restart php8.3-fpm                # required after adding an extension
 
 # Give the server read-only pull access to the repository
 ssh-keygen -t ed25519 -C "deploy@myserver"
@@ -337,6 +337,13 @@ cat ~/.ssh/id_ed25519.pub
 
 PHP needs the driver extension for whichever database you choose. Without it Laravel fails
 with `could not find driver`, which never mentions PHP extensions.
+
+**On the PHP version:** 8.3 is used here and in `deploy/nginx/api.conf` because it is what
+current Ubuntu and Debian package. That is the *runtime*; it is a different thing from the
+**8.2 floor** the project targets (`composer.json` pins `config.platform.php` to 8.2 and CI
+tests there, so the code is guaranteed to run on 8.2 and up). If your distribution ships 8.2
+— Ubuntu 22.04 does — install the `php8.2-*` packages instead and change the socket path in
+the vhost to match. Keep the two consistent with each other; neither needs to match the floor.
 
 Add that public key to **GitHub → your repository → Settings → Deploy keys → Add deploy
 key**, leaving "Allow write access" unchecked. A deploy key is scoped to this one
@@ -583,7 +590,7 @@ Certificates land in `/etc/letsencrypt/live/api.example.com/` as `fullchain.pem`
 Copy it and fill in the placeholders listed at the top of the file: `server_name` (both
 blocks), the `ssl_certificate` / `ssl_certificate_key` paths, the `root` path (replace
 `YOUR_PROJECT` with your cloned directory name), and the PHP-FPM socket if you are not on
-the packaged `php8.2-fpm`.
+the packaged `php8.3-fpm`.
 
 ```bash
 sudo cp deploy/nginx/api.conf /etc/nginx/sites-available/api
@@ -593,7 +600,7 @@ sudo cp deploy/nginx/api.conf /etc/nginx/sites-available/api
 sudo sed -i 's/api\.example\.com/api.yourdomain.com/g; s#/var/www/YOUR_PROJECT#/var/www/my-project#g' \
   /etc/nginx/sites-available/api
 
-# The socket must match the PHP-FPM actually installed (8.3 ships on newer Ubuntu)
+# The socket must match the PHP-FPM actually installed (the file defaults to 8.3)
 ls /run/php/*.sock
 grep fastcgi_pass /etc/nginx/sites-available/api
 
@@ -712,7 +719,7 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
     APP_ENV=production, APP_DEBUG=false, and DB_* if not staying on SQLite
 [ ] apps/api/vendor/ exists and APP_KEY is set (setup skips both if composer install failed)
 [ ] CORS_ALLOWED_ORIGINS and FRONTEND_URL include the scheme (https://…), not a bare host
-[ ] DB driver extension installed (php8.2-mysql / -pgsql / -sqlite3); DB_* keys uncommented
+[ ] DB driver extension installed (php8.3-mysql / -pgsql / -sqlite3); DB_* keys uncommented
 [ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
 [ ] DNS A record for the API hostname resolves to this server (dig +short)
 [ ] Ports 80 and 443 open — 80 stays open for renewals
@@ -748,7 +755,8 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
   `nginx -t` passes — a failed reload is not an outage, it is a no-op.
 - **`502 Bad Gateway` from the API once TLS works.** nginx reached PHP-FPM's socket path and
   found nothing there. Compare `fastcgi_pass` in the vhost with `ls /run/php/*.sock` — the
-  committed file assumes `php8.2-fpm.sock`, and newer Ubuntu releases ship 8.3.
+  committed file defaults to `php8.3-fpm.sock`; Ubuntu 22.04 and older ship 8.2, so the path
+  needs changing there.
 - **certbot reports `Challenge failed` / `Invalid response … 404`.** Read the URL in the
   error first — it tells you most of what you need:
   - It names your server's IP, so **DNS is fine**; that is not the problem.
