@@ -475,11 +475,57 @@ php artisan migrate --force        # safe to re-run; no-ops when already applied
 
 #### 1e. Permissions
 
+**Two different users write to this app**: your deploy user runs `artisan` and `composer`,
+while PHP-FPM serves requests as `www-data`. Both need write access to the same files, and a
+file created by one must stay writable by the other — otherwise you get a 500 on a request
+that already did its work (the row is committed, then logging fails), which sends you
+debugging the controller instead of the filesystem.
+
 ```bash
-# Laravel must be able to write these; the deploy's `artisan down` needs it too
+cd /var/www/my-project/apps/api
+
+# Shared group ownership
 sudo chown -R $USER:www-data storage bootstrap/cache
-sudo chmod -R ug+rwX storage bootstrap/cache
+
+# setgid (the 2 in 2775): files created in these directories inherit the
+# www-data group instead of the creating user's own group. Without it, the
+# next file either user creates is unwritable by the other.
+sudo find storage bootstrap/cache -type d -exec chmod 2775 {} \;
+sudo find storage bootstrap/cache -type f -exec chmod 0664 {} \;
+
+# Let the deploy user write files the web server created
+sudo usermod -aG www-data $USER    # log out and back in for this to take effect
 ```
+
+`config/logging.php` sets `'permission' => 0664` on the log channels for the same reason, so
+`storage/logs/laravel.log` is group-writable no matter which user creates it first.
+
+#### 1f. Verify with `app:doctor`
+
+```bash
+php artisan app:doctor
+```
+
+This is the post-install check: it probe-writes every directory Laravel needs, writes an
+actual log line, opens a database connection, reports pending migrations, and flags the
+configuration mistakes that fail silently — `APP_DEBUG=true` in production, an origin
+without a scheme, mail still on the `log` driver. **FAIL** means broken or unsafe right now
+and exits non-zero; **WARN** means it works but is probably not what you intended.
+
+```
+  Environment
+  PASS APP_KEY is set
+  PASS APP_DEBUG is off in production
+
+  Filesystem
+  PASS storage/logs is writable
+  …
+  Database
+  PASS Database connection (mysql)
+  PASS All migrations have run
+```
+
+Re-run it any time a deploy or an `.env` edit changes something.
 
 `.env` is gitignored, so `git reset --hard` during a deploy never clobbers it. That also
 means **the workflow cannot create it** — a missing `.env` on the server is a failed
@@ -720,7 +766,8 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
 [ ] apps/api/vendor/ exists and APP_KEY is set (setup skips both if composer install failed)
 [ ] CORS_ALLOWED_ORIGINS and FRONTEND_URL include the scheme (https://…), not a bare host
 [ ] DB driver extension installed (php8.3-mysql / -pgsql / -sqlite3); DB_* keys uncommented
-[ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
+[ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm (setgid 2775)
+[ ] php artisan app:doctor reports no FAIL
 [ ] DNS A record for the API hostname resolves to this server (dig +short)
 [ ] Ports 80 and 443 open — 80 stays open for renewals
 [ ] TLS certificate issued into /etc/letsencrypt/live/<host>/
@@ -1166,6 +1213,12 @@ npm run setup:env   # rewrite env files only
 npm run setup:check # preflight + ping smoke test
 ```
 
+On a server, from `apps/api`:
+
+```bash
+php artisan app:doctor   # env, permissions, database, URLs and mail — exits non-zero on FAIL
+```
+
 ---
 
 ## Re-running setup safely
@@ -1238,6 +1291,18 @@ See `apps/web/.env.local.example`.
 
 ### App
 
+- **`500` on register/login, but the user row *was* created.** The write succeeded and
+  something afterwards failed — almost always logging. `MAIL_MAILER=log` (the default) means
+  the verification email is *written to* `storage/logs/laravel.log`, so if PHP-FPM cannot
+  append to that file the request dies after the commit. Confirm with `php artisan app:doctor`,
+  which probe-writes the log channel, then fix ownership per
+  [1e](#1e-permissions):
+  ```bash
+  cd <DEPLOY_PATH>/apps/api
+  sudo chown :www-data storage/logs/laravel.log && sudo chmod 0664 storage/logs/laravel.log
+  ```
+  Also set a real `MAIL_MAILER` — on `log`, verification and password-reset messages never
+  reach users.
 - **Requests show `blocked:csp` in the network tab, and nothing reaches the API.** Content-
   Security-Policy, not CORS — the browser refused to *send* the request, so the backend never
   saw it and its logs stay empty. `next.config.ts` builds `connect-src` from

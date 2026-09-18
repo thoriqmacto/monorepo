@@ -74,6 +74,16 @@ You (the agent) are working on a **reusable Laravel + Next.js monorepo starter**
 | New auth method | `apps/web/lib/auth/adapters/<name>.ts` + wire in `lib/auth/index.ts` |
 | New setup prompt | `scripts/setup.mjs` (prompt helper) + add the env key to `.env.example` |
 
+## Post-deploy verification
+
+`php artisan app:doctor` (`apps/api/app/Console/Commands/AppDoctorCommand.php`) is the
+post-install check the README's step 1f runs. Every check in it exists because its absence
+produces a failure that points somewhere other than the cause — a 500 on register that is
+really an unwritable log file, a CORS rejection that is really a missing `https://`. Keep
+that bar: add a check when you hit a misconfiguration whose error message does not name its
+own cause, and keep FAIL (broken or unsafe now, exits non-zero) distinct from WARN (works,
+probably unintended). It has tests in `tests/Feature/AppDoctorTest.php`.
+
 ## Copying the Notes example
 
 `notes` is the canonical CRUD template in this repo. When building a new resource, copy that pattern end-to-end: migration with `foreignId('user_id')`, model with `$fillable` excluding `user_id`, controller that uses `$model->user()->associate($request->user())` to attach the owner, form request for validation, feature test covering 401 / index-scope / store / validation / delete-self / delete-other. On the frontend: a page in `(app)/<slug>/` using SWR for reads and `api` for writes, with optimistic deletes.

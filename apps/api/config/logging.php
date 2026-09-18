@@ -58,10 +58,18 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        // 'permission' => 0664 matters on a server where two users touch the
+        // app: artisan runs as the deploy user, PHP-FPM as www-data. Without
+        // it the log file keeps the 0644 of whoever wrote first, and the other
+        // user gets "Permission denied" on every write. That surfaces as a 500
+        // on a request that already did its work -- the row is committed, then
+        // logging (or the log mail driver) dies -- which sends you looking at
+        // the controller instead of at file permissions.
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
+            'permission' => 0664,
             'replace_placeholders' => true,
         ],
 
@@ -70,6 +78,7 @@ return [
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 14),
+            'permission' => 0664,
             'replace_placeholders' => true,
         ],
 
