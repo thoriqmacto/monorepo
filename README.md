@@ -151,7 +151,7 @@ When prompted:
 | **Project name** | `My App` |
 | **Where will the API run?** | Pick "Remote backend". |
 | **Backend API origin** | `https://api.example.com` (no path) |
-| **Frontend origin** | `https://app.example.com` (for CORS) |
+| **Frontend origin** | `https://app.example.com` — **include the scheme**, see the warning under the server table below |
 | **Auth mode** | `bearer` (default) |
 
 Setup still runs `composer install` and Laravel's `key:generate` / `migrate` here, against
@@ -321,13 +321,22 @@ clone, so the server needs a real, working checkout before the first deploy.
 
 ```bash
 # On the VPS, as the user the deploy will log in as (e.g. "deploy")
-sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl php8.2-sqlite3 \
+sudo apt install -y php8.2-fpm php8.2-mbstring php8.2-xml php8.2-curl \
                     php8.2-bcmath php8.2-intl composer nginx git nodejs npm
+
+# Plus the driver for the database you intend to use — pick one:
+sudo apt install -y php8.2-sqlite3               # staying on SQLite
+sudo apt install -y php8.2-mysql mysql-server    # MySQL
+sudo apt install -y php8.2-pgsql postgresql      # PostgreSQL
+sudo systemctl restart php8.2-fpm                # required after adding an extension
 
 # Give the server read-only pull access to the repository
 ssh-keygen -t ed25519 -C "deploy@myserver"
 cat ~/.ssh/id_ed25519.pub
 ```
+
+PHP needs the driver extension for whichever database you choose. Without it Laravel fails
+with `could not find driver`, which never mentions PHP extensions.
 
 Add that public key to **GitHub → your repository → Settings → Deploy keys → Add deploy
 key**, leaving "Allow write access" unchecked. A deploy key is scoped to this one
@@ -357,7 +366,7 @@ npm run setup
 | **Project name** | your app's name |
 | **Where will the API run?** | **Remote backend** — counter-intuitive on the machine running the API, but it is the answer that writes a real public `APP_URL` instead of `http://localhost:8000` |
 | **Backend API origin** | `https://api.example.com` — this box's public API URL, no path |
-| **Frontend origin** | `https://app.example.com` (or your `*.vercel.app` URL) — becomes `CORS_ALLOWED_ORIGINS` |
+| **Frontend origin** | `https://app.example.com` (or your `*.vercel.app` URL) — becomes `CORS_ALLOWED_ORIGINS` and `FRONTEND_URL`. **Include the scheme** — see below |
 | **Auth mode** | `bearer` (default) |
 
 Or non-interactively:
@@ -369,6 +378,15 @@ node scripts/setup.mjs --non-interactive \
   --api-url=https://api.example.com \
   --frontend-origin=https://app.example.com
 ```
+
+> **Origins need their scheme.** Type `https://app.example.com`, never a bare
+> `app.example.com`. Setup validates the API origin but passes the frontend origin through
+> as typed, and both values it lands in fail silently without the scheme:
+> `CORS_ALLOWED_ORIGINS` is compared literally against the browser's `Origin` header (always
+> `https://…`), so a bare host matches nothing and blocks every cross-origin request; and
+> `FRONTEND_URL` is concatenated into verification and password-reset links, where a missing
+> scheme makes them relative paths on the API host instead of links to your app. Both show up
+> long after setup, pointing at the frontend rather than at this line.
 
 That writes `apps/api/.env` with `APP_URL`, `CORS_ALLOWED_ORIGINS` and `FRONTEND_URL`
 already correct, runs `composer install`, generates `APP_KEY` if it is empty, runs
@@ -391,19 +409,39 @@ nano .env
 ```env
 APP_ENV=production     # setup leaves this at "local"
 APP_DEBUG=false        # setup leaves this at "true" — stack traces would be public
-DB_CONNECTION=mysql    # only if you are not staying on SQLite
-DB_DATABASE=…          # plus DB_HOST / DB_USERNAME / DB_PASSWORD
 ```
 
-Then create the database and migrate into it. **Staying on SQLite?** Remote mode skips the
-file, so create it yourself — `migrate` against a missing SQLite file is exactly the kind of
-failure that looks like a broken app later:
+Then point it at a database. `.env.example` ships configured for SQLite, and — this is the
+part that bites — **`DB_HOST`, `DB_PORT`, `DB_USERNAME` and `DB_PASSWORD` ship commented
+out**. Switching `DB_CONNECTION` without uncommenting them leaves Laravel on its built-in
+defaults (`root`, empty password), producing an access-denied error that reads like wrong
+credentials when the real cause is four `#` characters.
+
+**Staying on SQLite** — remote mode does not create the file, and migrating against a
+missing one fails in a way that only surfaces later:
 
 ```bash
-# SQLite only
 touch database/database.sqlite
+php artisan migrate --force
+```
 
-# either way
+**Using MySQL or PostgreSQL** — create the database and a user for it, then set all six keys,
+uncommenting the four that ship commented:
+
+```env
+DB_CONNECTION=mysql
+DB_DATABASE=myapp
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USERNAME=myapp
+DB_PASSWORD=a-strong-password
+```
+
+Quote the value if the password contains spaces or `#` — `DB_PASSWORD="p@ss word#1"` — then
+migrate. Do not create `database/database.sqlite` in this case; a stray SQLite file next to a
+real database server is only ever a source of confusion:
+
+```bash
 php artisan migrate --force
 ```
 
@@ -411,7 +449,24 @@ These edits are safe: `npm run setup` preserves every existing value in `.env` a
 rewrites the keys it manages, so re-running it later will not flip `APP_ENV` back to
 `local`. (It also drops a `.env.bak` beside the file each time.)
 
-#### 1d. Permissions
+#### 1d. Check the bootstrap actually happened
+
+**Do not skip this.** If `composer install` fails for any reason, setup prints
+`Skipping Laravel bootstrap: vendor/ missing` and then **exits successfully anyway** — so a
+box can look set up while having no `vendor/`, no `APP_KEY`, and no schema. Every later
+command fails with `Failed opening required '.../vendor/autoload.php'`, which names none of
+that.
+
+```bash
+cd apps/api
+ls vendor/autoload.php || composer install --no-dev --optimize-autoloader
+grep -q '^APP_KEY=base64:' .env || php artisan key:generate
+php artisan migrate --force        # safe to re-run; no-ops when already applied
+```
+
+`migrate` also needs the SQLite file to exist if you are staying on SQLite — see 1c.
+
+#### 1e. Permissions
 
 ```bash
 # Laravel must be able to write these; the deploy's `artisan down` needs it too
@@ -519,6 +574,9 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
 [ ] npm run setup has been run there (mode=remote, api-url = this box's public URL)
 [ ] apps/api/.env has APP_KEY set, plus the values setup leaves alone:
     APP_ENV=production, APP_DEBUG=false, and DB_* if not staying on SQLite
+[ ] apps/api/vendor/ exists and APP_KEY is set (setup skips both if composer install failed)
+[ ] CORS_ALLOWED_ORIGINS and FRONTEND_URL include the scheme (https://…), not a bare host
+[ ] DB driver extension installed (php8.2-mysql / -pgsql / -sqlite3); DB_* keys uncommented
 [ ] storage/ and bootstrap/cache/ writable by the deploy user and php-fpm
 [ ] deploy/nginx/api.conf installed, placeholders filled, `nginx -t` passes
 [ ] Runner → VPS key added to the deploy user's authorized_keys
@@ -538,6 +596,15 @@ cache is rebuilt** — either re-run the deploy or run `php artisan config:cache
   (`ssh-keyscan -p <DEPLOY_PORT> <DEPLOY_HOST>`) and the **same host spelling** as the
   `DEPLOY_HOST` secret. OpenSSH stores a non-default port as `[host]:port`, so a portless
   keyscan will not match a connection to `2222`.
+- **`Failed opening required '.../vendor/autoload.php'`** from any `php artisan` command.
+  Dependencies were never installed on that box — `composer install` failed or never ran, and
+  setup only warns about it. Nothing else will work until this does:
+  ```bash
+  cd <DEPLOY_PATH>/apps/api      # or <DEPLOY_PATH> if that is already apps/api
+  composer install --no-dev --optimize-autoloader
+  grep -q '^APP_KEY=base64:' .env || php artisan key:generate
+  php artisan migrate --force
+  ```
 - **`Permission denied (publickey)`.** The public half of `DEPLOY_SSH_KEY` isn't in the
   deploy user's `~/.ssh/authorized_keys`, or the secret is missing its BEGIN/END lines.
 - **`No artisan found at …`.** `DEPLOY_PATH` points somewhere that is neither the
@@ -968,7 +1035,7 @@ See `apps/web/.env.local.example`.
 
 ### App
 
-- **CORS errors in the browser.** Make sure your web origin is listed in `CORS_ALLOWED_ORIGINS` on the API. Re-run `npm run setup` and restart `php artisan serve`.
+- **CORS errors in the browser.** Make sure your web origin is listed in `CORS_ALLOWED_ORIGINS` on the API. Re-run `npm run setup` and restart `php artisan serve`. If it *is* listed and still fails, compare it character for character with the `Origin` header in the browser's network tab: the match is literal, so a missing `https://`, a trailing slash, or a missing `:port` all block every request. On a server, also confirm the change is live — `php artisan config:cache` after editing `.env`.
 - **`401` on `/me` right after login.** You're probably in SPA-cookie mode without `CORS_SUPPORTS_CREDENTIALS=true` or with a missing `SANCTUM_STATEFUL_DOMAINS` entry. Or, in bearer mode, localStorage was cleared. Switch back to bearer (the default) with `npm run setup:env`.
 - **`/dashboard` redirects to `/login`.** Middleware relies on the `auth_hint` cookie set at login time. If you cleared cookies, sign in again.
 - **Herd link fails.** You're on Linux/Windows — Herd integration is macOS only. Answer "no" to the Herd prompt and use `php artisan serve`.
