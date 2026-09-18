@@ -149,27 +149,62 @@ On the first connection Git may ask whether to trust GitHub's host key — type 
 Hi <username>! You've successfully authenticated, but GitHub does not provide shell access.
 ```
 
-### Push your project
+That greeting confirms the **key** is registered. It does not mean your next `git push`
+will use it — that depends entirely on the remote URL you set below.
+
+### Pick one protocol and stay on it
+
+Git decides how to authenticate from the remote URL alone, so the URL and your credentials
+have to match. Mixing them is the most common way to get stuck here:
+
+| Remote URL starts with | Authenticates with | Never uses |
+|---|---|---|
+| `git@github.com:` | your SSH key | passwords, PATs |
+| `https://github.com/` | a Personal Access Token | your SSH key — even a working one |
+
+An SSH key you just verified does **nothing** for an `https://` remote. Git will prompt for
+a username and password and GitHub will reject it.
+
+### Push your project (SSH — recommended)
 
 ```bash
 git add .
 git commit -m "Initial project setup"
 
 git remote add origin git@github.com:<username>/<new-repository>.git
-git remote -v   # confirm the remote is correct
+
+# Confirm it. The output must start with git@github.com: — if it says
+# https://github.com/ the push below will ask for a password and fail.
+git remote -v
 
 git push -u origin main
 ```
 
 ### HTTPS alternative (requires a Personal Access Token)
 
-If you prefer HTTPS, note that GitHub **no longer accepts your account password** for Git operations — you must use a [Personal Access Token (PAT)](https://github.com/settings/tokens) in its place:
+Only if you deliberately prefer HTTPS. GitHub **no longer accepts your account password**
+for Git operations — you must create a [Personal Access Token (PAT)](https://github.com/settings/tokens)
+and enter that at the password prompt:
 
 ```bash
 git remote add origin https://github.com/<username>/<new-repository>.git
 git push -u origin main
-# When prompted for a password, enter your PAT, not your GitHub password.
+# Username: your GitHub username
+# Password: your PAT — NOT your GitHub password
 ```
+
+### Already added the wrong remote?
+
+`git remote add` fails if a remote called `origin` already exists, and re-running it does
+not change the URL. Use `set-url` to switch an existing remote over to SSH:
+
+```bash
+git remote set-url origin git@github.com:<username>/<new-repository>.git
+git remote -v            # verify it now starts with git@github.com:
+git push -u origin main
+```
+
+Nothing else needs redoing — your commits are untouched, only the destination changes.
 
 ---
 
@@ -754,6 +789,32 @@ See `apps/web/.env.local.example`.
 ---
 
 ## Troubleshooting
+
+### Git / GitHub
+
+- **`Invalid username or token. Password authentication is not supported for Git operations.`**
+  Your remote is an `https://` URL, so Git is asking for a password regardless of any SSH
+  key you set up. `ssh -T git@github.com` succeeding does not change this — that tests the
+  key, not the remote. Switch the remote to SSH:
+  ```bash
+  git remote set-url origin git@github.com:<username>/<repository>.git
+  git remote -v      # must start with git@github.com:
+  git push -u origin main
+  ```
+  Or, to stay on HTTPS, enter a [Personal Access Token](https://github.com/settings/tokens)
+  at the password prompt instead of your account password.
+- **`Permission denied (publickey)` on an SSH remote.** The key this shell offers isn't the
+  one registered on GitHub. Check with `ssh -T git@github.com`; if that fails too, the
+  public key in `~/.ssh/id_ed25519.pub` was never added under
+  **GitHub → Settings → SSH and GPG keys**, or you generated it as a different user than the
+  one running `git` (on a server, `sudo`/`su` changes which `~/.ssh` is read).
+- **`remote origin already exists`.** `git remote add` only creates; it never updates. Use
+  `git remote set-url origin <url>`.
+- **`src refspec main does not match any`.** You haven't committed yet, or the branch is
+  called something else. `git add . && git commit -m "Initial project setup"`, and
+  `git branch -M main` if needed.
+
+### App
 
 - **CORS errors in the browser.** Make sure your web origin is listed in `CORS_ALLOWED_ORIGINS` on the API. Re-run `npm run setup` and restart `php artisan serve`.
 - **`401` on `/me` right after login.** You're probably in SPA-cookie mode without `CORS_SUPPORTS_CREDENTIALS=true` or with a missing `SANCTUM_STATEFUL_DOMAINS` entry. Or, in bearer mode, localStorage was cleared. Switch back to bearer (the default) with `npm run setup:env`.
